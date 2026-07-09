@@ -1,0 +1,57 @@
+# --- Исполняемые файлы и результаты сборки ---
+*.exe
+*.out
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.ilk
+
+# --- Объектные файлы ---
+*.o
+*.obj
+*.i
+*.ii
+
+# --- Папки сборок (CMake/Make/MSVC) ---
+build/
+bin/
+obj/
+out/
+.vs/
+.vscode/
+# Исключение для папки .vscode (если вы хотите синхронизировать настройки запуска)
+# !.vscode/settings.json
+# !.vscode/tasks.json
+# !.vscode/launch.json
+
+# --- Логи и временные файлы ---
+*.log
+*.tmp
+*.bak
+*.cache
+*.swp
+*~
+
+# --- Системные файлы ОС ---
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux/WSL
+.directory
+*~
+
+# Игнорировать если есть локальные файлы конфигурации или секреты
+.env
+*.local
+
+# Прочее
