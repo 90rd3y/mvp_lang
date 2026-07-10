@@ -95,12 +95,13 @@ NodeId Parser::literal(bool) {
 }
 
 NodeId Parser::variable(bool can_assign) {
-  Lexer::Token name = previous();
-  if (can_assign && match(Lexer::TokenType::Equal)) {
-    NodeId value = expression();
-    return create_node(NodeType::Assign, name, {value});
-  }
-  return create_node(NodeType::Identifier, name);
+    Lexer::Token name = previous();
+    NodeId var_node = create_node(NodeType::Identifier, name);
+    if (can_assign && match(Lexer::TokenType::Equal)) {
+        NodeId value = expression();
+        return create_node(NodeType::Assign, previous(), {var_node, value}); // Теперь Assign имеет 2 детей: цель и значение
+    }
+    return var_node;
 }
 
 NodeId Parser::binary(bool) {
@@ -133,6 +134,7 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::KwFalse)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Identifier)] = {&Parser::variable, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwInput)] = {&Parser::builtin_input, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::LBracket)] = {nullptr, &Parser::indexing, PREC_CALL};
     return r;
   }();
   return &rules[static_cast<int>(type)];
@@ -155,21 +157,41 @@ NodeId Parser::declaration() {
     return var_declaration();
   }
   
+  if (check(Lexer::TokenType::Identifier)) {
+      if (current + 1 < tokens.size() && tokens[current + 1].type == Lexer::TokenType::Identifier) {
+          return var_declaration();
+      }
+      if (current + 4 < tokens.size() && 
+          tokens[current + 1].type == Lexer::TokenType::LBracket &&
+          tokens[current + 2].type == Lexer::TokenType::Int &&
+          tokens[current + 3].type == Lexer::TokenType::RBracket &&
+          tokens[current + 4].type == Lexer::TokenType::Identifier) {
+          return var_declaration();
+      }
+  }
+  
   return statement();
 }
 
 NodeId Parser::var_declaration() {
-  // Формат: тип имя = значение;
-  Lexer::Token type_token = advance(); // Упрощенно: берем токен типа
-  (void)type_token;
-  Lexer::Token name =
-      consume(Lexer::TokenType::Identifier, "Ожидалось имя переменной");
-  NodeId initializer = InvalidNode;
-  if (match(Lexer::TokenType::Equal)) {
-    initializer = expression();
-  }
-  consume(Lexer::TokenType::Semicolon, "Ожидалось ';' после объявления");
-  return create_node(NodeType::VarDecl, name, {initializer});
+    Lexer::Token type_token = advance();
+    uint32_t array_size = 0;
+    if (match(Lexer::TokenType::LBracket)) {
+        Lexer::Token size_tok = consume(Lexer::TokenType::Int, "Ожидался размер массива");
+        array_size = std::stoul(std::string(size_tok.lexeme));
+        consume(Lexer::TokenType::RBracket, "Ожидалось ']'");
+    }
+    Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя переменной");
+    NodeId initializer = InvalidNode;
+    if (match(Lexer::TokenType::Equal)) {
+        initializer = expression();
+    }
+    consume(Lexer::TokenType::Semicolon, "Ожидалось ';' после объявления");
+    
+    NodeId type_node = create_node(NodeType::Identifier, type_token);
+    NodeId node = create_node(NodeType::VarDecl, name, {initializer, type_node});
+    nodes[node].extra_data = array_size;
+    return node;
 }
 
 NodeId Parser::block() {
@@ -294,7 +316,13 @@ NodeId Parser::func_declaration() {
     return create_node(NodeType::FuncDecl, name, children);
 } // Реализация парсинга параметров и тела
 NodeId Parser::struct_declaration() { return InvalidNode; }
-NodeId Parser::type_alias() { return InvalidNode; }
+NodeId Parser::type_alias() {
+    Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя синонима");
+    consume(Lexer::TokenType::Equal, "Ожидалось '='");
+    Lexer::Token base_type = advance();
+    consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+    return create_node(NodeType::TypeAlias, name, {create_node(NodeType::Identifier, base_type)});
+}
 NodeId Parser::if_statement() {
     Lexer::Token if_tok = previous();
     consume(Lexer::TokenType::LParen, "Ожидалось '(' после 'если'");
@@ -335,6 +363,20 @@ NodeId Parser::builtin_input(bool) {
     consume(Lexer::TokenType::LParen, "Ожидалось '(' после 'ввод'");
     consume(Lexer::TokenType::RParen, "Ожидалось ')' после 'ввод'");
     return create_node(NodeType::BuiltinInput, tok);
+}
+
+NodeId Parser::indexing(bool can_assign) {
+    NodeId left = static_cast<NodeId>(nodes.size() - 1);
+    NodeId index = expression();
+    consume(Lexer::TokenType::RBracket, "Ожидалось ']'");
+    
+    NodeId index_node = create_node(NodeType::Indexing, previous(), {left, index});
+    
+    if (can_assign && match(Lexer::TokenType::Equal)) {
+        NodeId value = expression();
+        return create_node(NodeType::Assign, previous(), {index_node, value});
+    }
+    return index_node;
 }
 
 } // namespace Parser

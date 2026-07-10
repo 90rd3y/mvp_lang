@@ -124,11 +124,25 @@ Value VM::eval(Parser::NodeId id) {
     }
     return res;
   }
-  case Parser::NodeType::Assign: {
-    Value val = eval(child_indices[node.children_offset]);
-    env.assign(node.token.data, val);
-    return val;
-  }
+    case Parser::NodeType::Indexing: {
+        Value arr_val = eval(child_indices[node.children_offset]);
+        Value idx_val = eval(child_indices[node.children_offset + 1]);
+        // Упрощенно: без проверки выхода за границы для MVP
+        return arr_val.as.arr[idx_val.as.i64];
+    }
+    case Parser::NodeType::Assign: {
+        Parser::NodeId target_id = child_indices[node.children_offset];
+        Value val = eval(child_indices[node.children_offset + 1]);
+        
+        if (nodes[target_id].type == Parser::NodeType::Identifier) {
+            env.assign(nodes[target_id].token.data, val);
+        } else if (nodes[target_id].type == Parser::NodeType::Indexing) {
+            Value arr_val = eval(child_indices[nodes[target_id].children_offset]);
+            Value idx_val = eval(child_indices[nodes[target_id].children_offset + 1]);
+            arr_val.as.arr[idx_val.as.i64] = val;
+        }
+        return val;
+    }
         case Parser::NodeType::Call: {
             Parser::NodeId callee_id = child_indices[node.children_offset];
             Lexer::IdentId func_name = nodes[callee_id].token.data;
@@ -228,10 +242,21 @@ void VM::execute(Parser::NodeId id) {
             if (!arg.as.b) panic("Утверждение ложно (assert failed)");
             break;
         }
+  case Parser::NodeType::TypeAlias: {
+      break; // Ничего не делаем в рантайме
+  }
   case Parser::NodeType::VarDecl: {
-    Value val = eval(child_indices[node.children_offset]);
-    env.define(node.token.data, val);
-    break;
+      Value val;
+      if (node.extra_data > 0) {
+          // Выделяем память под массив в Арене
+          val.kind = Semantic::TypeKind::Array;
+          val.as.arr = static_cast<Value*>(arena.alloc(sizeof(Value) * node.extra_data, alignof(Value)));
+          for(uint32_t i = 0; i < node.extra_data; ++i) val.as.arr[i] = Value(); // Инициализация нулями
+      } else if (child_indices[node.children_offset] != Parser::InvalidNode) {
+          val = eval(child_indices[node.children_offset]);
+      }
+      env.define(node.token.data, val);
+      break;
   }
         case Parser::NodeType::ExprStmt: {
             Parser::NodeId expr_id = child_indices[node.children_offset];

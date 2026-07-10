@@ -16,6 +16,7 @@ struct Value {
     double f64;
     bool b;
     const char *s; // Строки хранятся в Арене
+    Value* arr; // Для массивов
   } as;
 
   Value() : kind(Semantic::TypeKind::Void) {}

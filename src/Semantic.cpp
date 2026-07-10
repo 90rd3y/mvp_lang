@@ -32,6 +32,14 @@ TypeId TypeTable::get_builtin(TypeKind kind) const {
   return 0;
 }
 
+TypeId TypeTable::find_by_name(Lexer::IdentId name_id) const {
+    auto it = name_to_id.find(name_id);
+    if (it != name_to_id.end()) {
+        return it->second;
+    }
+    return 0;
+}
+
 // --- SymbolTable ---
 
 void SymbolTable::enter_scope() { scopes.push_back({}); }
@@ -93,13 +101,79 @@ TypeId Analyzer::check(Parser::NodeId id) {
   case Parser::NodeType::BinaryOp:
     result = check_binary(id);
     break;
-  case Parser::NodeType::Assign:
-    result = check_assignment(id);
-    break;
-  case Parser::NodeType::VarDecl:
-    result = check_var_decl(id);
-    break;
-
+  case Parser::NodeType::Assign: {
+      Parser::NodeId target_id = child_indices[node.children_offset];
+      Parser::NodeId val_id = child_indices[node.children_offset + 1];
+      
+      TypeId target_type = check(target_id);
+      TypeId val_type = check(val_id);
+      
+      auto resolve_alias = [&](TypeId id) {
+          while (type_table.get_type(id).kind == TypeKind::Alias) {
+              id = type_table.get_type(id).base_type;
+          }
+          return id;
+      };
+      
+      if (resolve_alias(target_type) != resolve_alias(val_type)) error(node.token, "Несоответствие типов при присваивании");
+      result = val_type;
+      break;
+  }
+  case Parser::NodeType::VarDecl: {
+      Parser::NodeId init_id = child_indices[node.children_offset];
+      Parser::NodeId type_node_id = child_indices[node.children_offset + 1];
+      
+      TypeId base_type = parse_type_token(nodes[type_node_id].token);
+      TypeId final_type = base_type;
+      
+      if (node.extra_data > 0) { // Это массив
+          final_type = type_table.register_type({TypeKind::Array, 0, node.extra_data, base_type});
+      }
+      
+      auto resolve_alias = [&](TypeId id) {
+          while (type_table.get_type(id).kind == TypeKind::Alias) {
+              id = type_table.get_type(id).base_type;
+          }
+          return id;
+      };
+      
+      if (init_id != Parser::InvalidNode) {
+          TypeId init_type = check(init_id);
+          if (resolve_alias(init_type) != resolve_alias(final_type)) error(node.token, "Тип инициализатора не совпадает с типом переменной");
+      }
+      
+      if (!symbol_table.declare(node.token.data, {final_type, true, true})) {
+          error(node.token, "Повторное объявление переменной");
+      }
+      result = final_type;
+      break;
+  }
+  case Parser::NodeType::TypeAlias: {
+      TypeId base = parse_type_token(nodes[child_indices[node.children_offset]].token);
+      type_table.register_type({TypeKind::Alias, node.token.data, 0, base});
+      result = type_table.get_builtin(TypeKind::Void);
+      break;
+  }
+  case Parser::NodeType::Indexing: {
+      TypeId arr_type = check(child_indices[node.children_offset]);
+      TypeId idx_type = check(child_indices[node.children_offset + 1]);
+      
+      auto resolve_alias = [&](TypeId id) {
+          while (type_table.get_type(id).kind == TypeKind::Alias) {
+              id = type_table.get_type(id).base_type;
+          }
+          return id;
+      };
+      
+      if (resolve_alias(idx_type) != type_table.get_builtin(TypeKind::Int)) error(node.token, "Индекс должен быть целым числом");
+      
+      TypeId resolved_arr_type = resolve_alias(arr_type);
+      const Type& t = type_table.get_type(resolved_arr_type);
+      if (t.kind != TypeKind::Array) error(node.token, "Индексация применима только к массивам");
+      
+      result = t.base_type;
+      break;
+  }
   case Parser::NodeType::Block: {
     symbol_table.enter_scope();
     for (uint32_t i = 0; i < node.children_count; ++i) {
@@ -248,7 +322,14 @@ TypeId Analyzer::check_binary(Parser::NodeId id) {
   TypeId right = check(child_indices[node.children_offset + 1]);
 
   // В нашем языке строгая типизация: типы должны совпадать
-  if (left != right) {
+  auto resolve_alias = [&](TypeId id) {
+      while (type_table.get_type(id).kind == TypeKind::Alias) {
+          id = type_table.get_type(id).base_type;
+      }
+      return id;
+  };
+  
+  if (resolve_alias(left) != resolve_alias(right)) {
     error(node.token, "Несоответствие типов в бинарной операции");
   }
 
@@ -260,41 +341,22 @@ TypeId Analyzer::check_binary(Parser::NodeId id) {
   return left;
 }
 
-TypeId Analyzer::check_var_decl(Parser::NodeId id) {
-  const auto &node = nodes[id];
-  // В учебной реализации тип берется из инициализатора (автовывод)
-  // Или можно добавить парсинг токена типа
-  Parser::NodeId init_id = child_indices[node.children_offset];
-  TypeId type_id = check(init_id);
 
-  if (!symbol_table.declare(node.token.data, {type_id, true, true})) {
-    error(node.token, "Повторное объявление переменной '" +
-                          std::string(node.token.lexeme) + "'");
-  }
-  return type_id;
-}
-
-TypeId Analyzer::check_assignment(Parser::NodeId id) {
-  const auto &node = nodes[id];
-  Symbol *sym = symbol_table.lookup(node.token.data);
-  if (!sym)
-    error(node.token, "Присваивание необъявленной переменной");
-
-  TypeId val_type = check(child_indices[node.children_offset]);
-  if (sym->type_id != val_type) {
-    error(node.token, "Тип значения не совпадает с типом переменной");
-  }
-  return val_type;
-}
 
 void Analyzer::analyze(Parser::NodeId root) { check(root); }
 
 TypeId Analyzer::parse_type_token(Lexer::Token tok) {
+    if (tok.type == Lexer::TokenType::Identifier) {
+        TypeId id = type_table.find_by_name(tok.data);
+        if (id == 0) error(tok, "Использование неизвестного типа");
+        return id;
+    }
     switch (tok.type) {
         case Lexer::TokenType::KwInt: return type_table.get_builtin(TypeKind::Int);
         case Lexer::TokenType::KwFloat: return type_table.get_builtin(TypeKind::Float);
         case Lexer::TokenType::KwBool: return type_table.get_builtin(TypeKind::Bool);
         case Lexer::TokenType::KwVoid: return type_table.get_builtin(TypeKind::Void);
+        case Lexer::TokenType::KwString: return type_table.get_builtin(TypeKind::String);
         default: return 0;
     }
 }

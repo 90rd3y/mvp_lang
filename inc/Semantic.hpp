@@ -96,9 +96,7 @@ private:
   // Вспомогательные методы проверки
   TypeId check_binary(Parser::NodeId id);
   TypeId check_literal(Parser::NodeId id);
-  TypeId check_var_decl(Parser::NodeId id);
   TypeId check_identifier(Parser::NodeId id);
-  TypeId check_assignment(Parser::NodeId id);
 
   void error(Lexer::Token token, const std::string &message);
 };

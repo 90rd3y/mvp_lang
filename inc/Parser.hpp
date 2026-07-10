@@ -46,6 +46,7 @@ struct ASTNode {
   Lexer::Token token;
   uint32_t children_offset; // Индекс в массиве child_indices
   uint32_t children_count;
+  uint32_t extra_data = 0; // Сюда будем писать размер массива
 };
 
 class Parser {
@@ -121,6 +122,7 @@ private:
   NodeId variable(bool can_assign);
   NodeId call(bool can_assign);
   NodeId builtin_input(bool can_assign);
+  NodeId indexing(bool can_assign);
 };
 
 } // namespace Parser
