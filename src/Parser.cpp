@@ -123,7 +123,11 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::Plus)] = {nullptr, &Parser::binary, PREC_TERM};
     r[static_cast<int>(Lexer::TokenType::Minus)] = {&Parser::unary, &Parser::binary, PREC_TERM};
     r[static_cast<int>(Lexer::TokenType::Star)] = {nullptr, &Parser::binary, PREC_FACTOR};
+    r[static_cast<int>(Lexer::TokenType::Less)] = {nullptr, &Parser::binary, PREC_COMPARISON};
+    r[static_cast<int>(Lexer::TokenType::EqualEqual)] = {nullptr, &Parser::binary, PREC_EQUALITY};
     r[static_cast<int>(Lexer::TokenType::Int)] = {&Parser::literal, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::KwTrue)] = {&Parser::literal, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::KwFalse)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Identifier)] = {&Parser::variable, nullptr, PREC_NONE};
     return r;
   }();
@@ -165,13 +169,14 @@ NodeId Parser::var_declaration() {
 }
 
 NodeId Parser::block() {
-  Lexer::Token brace = previous();
-  std::vector<NodeId> stmts;
-  while (!check(Lexer::TokenType::RBrace) && !check(Lexer::TokenType::Eof)) {
-    stmts.push_back(statement());
-  }
-  consume(Lexer::TokenType::RBrace, "Ожидалось '}'");
-  return create_node(NodeType::Block, brace, stmts);
+    Lexer::Token brace = previous();
+    std::vector<NodeId> stmts;
+    while (!check(Lexer::TokenType::RBrace) && !check(Lexer::TokenType::Eof)) {
+        // Внутри блока могут быть и переменные, и инструкции
+        stmts.push_back(declaration()); 
+    }
+    consume(Lexer::TokenType::RBrace, "Ожидалось '}'");
+    return create_node(NodeType::Block, brace, stmts);
 }
 
 NodeId Parser::statement() {
@@ -220,8 +225,31 @@ NodeId Parser::func_declaration() {
 } // Реализация парсинга параметров и тела
 NodeId Parser::struct_declaration() { return InvalidNode; }
 NodeId Parser::type_alias() { return InvalidNode; }
-NodeId Parser::if_statement() { return InvalidNode; }
-NodeId Parser::while_statement() { return InvalidNode; }
+NodeId Parser::if_statement() {
+    Lexer::Token if_tok = previous();
+    consume(Lexer::TokenType::LParen, "Ожидалось '(' после 'если'");
+    NodeId condition = expression();
+    consume(Lexer::TokenType::RParen, "Ожидалось ')' после условия");
+    
+    NodeId then_branch = statement();
+    NodeId else_branch = InvalidNode;
+    
+    if (match(Lexer::TokenType::KwElse)) {
+        else_branch = statement();
+    }
+    
+    return create_node(NodeType::If, if_tok, {condition, then_branch, else_branch});
+}
+
+NodeId Parser::while_statement() {
+    Lexer::Token while_tok = previous();
+    consume(Lexer::TokenType::LParen, "Ожидалось '(' после 'пока'");
+    NodeId condition = expression();
+    consume(Lexer::TokenType::RParen, "Ожидалось ')' после условия");
+    
+    NodeId body = statement();
+    return create_node(NodeType::While, while_tok, {condition, body});
+}
 NodeId Parser::return_statement() { return InvalidNode; }
 
 } // namespace Parser

@@ -114,6 +114,10 @@ Value VM::eval(Parser::NodeId id) {
       res.kind = Semantic::TypeKind::Bool;
       res.as.b = (left.as.i64 == right.as.i64); // Упрощенно
       break;
+    case Lexer::TokenType::Less:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 < right.as.i64); // Упрощенно
+      break;
     default:
       break;
     }
@@ -149,21 +153,12 @@ void VM::execute(Parser::NodeId id) {
     env.define(node.token.data, val);
     break;
   }
-  case Parser::NodeType::ExprStmt: {
+        case Parser::NodeType::ExprStmt: {
             Parser::NodeId expr_id = child_indices[node.children_offset];
-            
-            // Если это вызов "печать"
-            if (nodes[expr_id].type == Parser::NodeType::Identifier && 
-                nodes[expr_id].token.lexeme == "печать") {
-                // В нашей упрощенной версии печать принимает следующее выражение как аргумент
-                // (в полной версии это был бы узел Call с аргументами)
-                return; // Пропускаем, так как обрабатываем как часть присваивания или отдельного синтаксиса
-            }
-            
             Value val = eval(expr_id);
             
-            // Костыль для учебной "печати": если предыдущий токен был "печать" (упрощенно для тестов)
-            if (node.token.lexeme == "печать") {
+            // Чистая обработка функции "печать"
+            if (node.token.type == Lexer::TokenType::KwPrint) {
                 switch (val.kind) {
                     case Semantic::TypeKind::Int: std::cout << val.as.i64 << "\n"; break;
                     case Semantic::TypeKind::Float: std::cout << val.as.f64 << "\n"; break;
@@ -174,7 +169,23 @@ void VM::execute(Parser::NodeId id) {
             }
             break;
         }
-  // Здесь добавляются If, While, Return
+        case Parser::NodeType::If: {
+            Value cond = eval(child_indices[node.children_offset]);
+            if (cond.as.b) {
+                execute(child_indices[node.children_offset + 1]);
+            } else if (node.children_count > 2 && child_indices[node.children_offset + 2] != Parser::InvalidNode) {
+                execute(child_indices[node.children_offset + 2]);
+            }
+            break;
+        }
+        case Parser::NodeType::While: {
+            while (true) {
+                Value cond = eval(child_indices[node.children_offset]);
+                if (!cond.as.b) break; // Выходим, если ложь
+                execute(child_indices[node.children_offset + 1]);
+            }
+            break;
+        }
   default:
     eval(id);
     break;

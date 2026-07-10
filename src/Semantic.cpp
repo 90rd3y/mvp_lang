@@ -118,6 +118,31 @@ TypeId Analyzer::check(Parser::NodeId id) {
     break;
   }
 
+        case Parser::NodeType::ExprStmt: {
+            result = check(child_indices[node.children_offset]);
+            break;
+        }
+        case Parser::NodeType::If: {
+            TypeId cond_type = check(child_indices[node.children_offset]);
+            if (cond_type != type_table.get_builtin(TypeKind::Bool)) {
+                error(node.token, "Условие 'если' должно иметь логический тип");
+            }
+            check(child_indices[node.children_offset + 1]); // Проверяем ветку then
+            if (node.children_count > 2 && child_indices[node.children_offset + 2] != Parser::InvalidNode) {
+                check(child_indices[node.children_offset + 2]); // Проверяем ветку else
+            }
+            result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
+        case Parser::NodeType::While: {
+            TypeId cond_type = check(child_indices[node.children_offset]);
+            if (cond_type != type_table.get_builtin(TypeKind::Bool)) {
+                error(node.token, "Условие 'пока' должно иметь логический тип");
+            }
+            check(child_indices[node.children_offset + 1]); // Проверяем тело цикла
+            result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
   default:
     break;
   }
