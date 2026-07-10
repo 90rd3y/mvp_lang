@@ -62,7 +62,7 @@ private:
 
 class Analyzer {
 public:
-  Analyzer(const std::vector<Parser::ASTNode> &nodes,
+  Analyzer(std::vector<Parser::ASTNode> &nodes,
            const std::vector<Parser::NodeId> &child_indices,
            Lexer::StringPool &pool);
 
@@ -74,13 +74,17 @@ public:
   }
 
 private:
-  const std::vector<Parser::ASTNode> &nodes;
+  std::vector<Parser::ASTNode> &nodes;
   const std::vector<Parser::NodeId> &child_indices;
   Lexer::StringPool &pool;
 
   TypeTable type_table;
   SymbolTable symbol_table;
   std::vector<TypeId> node_resolved_types; // Аннотация AST типами
+
+  struct StructField { TypeId type; uint32_t offset; };
+  std::unordered_map<TypeId, std::unordered_map<Lexer::IdentId, StructField>> struct_fields;
+  std::unordered_map<TypeId, uint32_t> struct_sizes;
 
   struct FuncSignature {
       TypeId return_type;

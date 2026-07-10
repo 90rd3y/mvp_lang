@@ -62,7 +62,7 @@ Symbol *SymbolTable::lookup(Lexer::IdentId name) {
 
 // --- Analyzer ---
 
-Analyzer::Analyzer(const std::vector<Parser::ASTNode> &n,
+Analyzer::Analyzer(std::vector<Parser::ASTNode> &n,
                    const std::vector<Parser::NodeId> &c, Lexer::StringPool &p)
     : nodes(n), child_indices(c), pool(p) {
   node_resolved_types.resize(nodes.size(), 0);
@@ -137,6 +137,16 @@ TypeId Analyzer::check(Parser::NodeId id) {
           return id;
       };
       
+      if (node.extra_data == 0) {
+          TypeId check_type = final_type;
+          if (type_table.get_type(check_type).kind == TypeKind::Alias) {
+              check_type = type_table.get_type(check_type).base_type;
+          }
+          if (type_table.get_type(check_type).kind == TypeKind::Struct) {
+              nodes[id].extra_data = struct_sizes[check_type];
+          }
+      }
+
       if (init_id != Parser::InvalidNode) {
           TypeId init_type = check(init_id);
           if (resolve_alias(init_type) != resolve_alias(final_type)) error(node.token, "Тип инициализатора не совпадает с типом переменной");
@@ -152,6 +162,52 @@ TypeId Analyzer::check(Parser::NodeId id) {
       TypeId base = parse_type_token(nodes[child_indices[node.children_offset]].token);
       type_table.register_type({TypeKind::Alias, node.token.data, 0, base});
       result = type_table.get_builtin(TypeKind::Void);
+      break;
+  }
+  case Parser::NodeType::StructDecl: {
+      TypeId struct_id = type_table.register_type({TypeKind::Struct, node.token.data, 0, 0});
+      uint32_t offset = 0;
+      for (uint32_t i = 0; i < node.children_count; i += 2) {
+          TypeId field_type = parse_type_token(nodes[child_indices[node.children_offset + i]].token);
+          Lexer::IdentId field_name = nodes[child_indices[node.children_offset + i + 1]].token.data;
+          
+          struct_fields[struct_id][field_name] = {field_type, offset};
+          
+          TypeId resolve = field_type;
+          while (type_table.get_type(resolve).kind == TypeKind::Alias) resolve = type_table.get_type(resolve).base_type;
+          if (type_table.get_type(resolve).kind == TypeKind::Struct) {
+              offset += struct_sizes[resolve];
+          } else {
+              offset += 1;
+          }
+      }
+      struct_sizes[struct_id] = offset;
+      result = type_table.get_builtin(TypeKind::Void);
+      break;
+  }
+  case Parser::NodeType::MemberAccess: {
+      TypeId obj_type = check(child_indices[node.children_offset]);
+      
+      if (type_table.get_type(obj_type).kind == TypeKind::Alias) {
+          obj_type = type_table.get_type(obj_type).base_type;
+      }
+      
+      if (type_table.get_type(obj_type).kind != TypeKind::Struct) {
+          error(node.token, "Обращение к полю не структуры");
+      }
+      
+      Lexer::IdentId field_name = node.token.data;
+      if (!struct_fields[obj_type].count(field_name)) {
+          error(node.token, "Неизвестное поле структуры");
+      }
+      
+      auto field_info = struct_fields[obj_type][field_name];
+      TypeId resolve = field_info.type;
+      while (type_table.get_type(resolve).kind == TypeKind::Alias) resolve = type_table.get_type(resolve).base_type;
+      bool is_struct = (type_table.get_type(resolve).kind == TypeKind::Struct);
+      
+      nodes[id].extra_data = field_info.offset | (is_struct ? 0x80000000 : 0);
+      result = field_info.type;
       break;
   }
   case Parser::NodeType::Indexing: {

@@ -146,6 +146,16 @@ Value VM::eval(Parser::NodeId id) {
         // Упрощенно: без проверки выхода за границы для MVP
         return arr_val.as.arr[idx_val.as.i64];
     }
+    case Parser::NodeType::MemberAccess: {
+        Value obj_val = eval(child_indices[node.children_offset]);
+        uint32_t offset = node.extra_data & 0x7FFFFFFF;
+        if (node.extra_data & 0x80000000) {
+            Value v; v.kind = Semantic::TypeKind::Array;
+            v.as.arr = obj_val.as.arr + offset;
+            return v;
+        }
+        return obj_val.as.arr[offset];
+    }
     case Parser::NodeType::Assign: {
         Parser::NodeId target_id = child_indices[node.children_offset];
         Value val = eval(child_indices[node.children_offset + 1]);
@@ -156,6 +166,10 @@ Value VM::eval(Parser::NodeId id) {
             Value arr_val = eval(child_indices[nodes[target_id].children_offset]);
             Value idx_val = eval(child_indices[nodes[target_id].children_offset + 1]);
             arr_val.as.arr[idx_val.as.i64] = val;
+        } else if (nodes[target_id].type == Parser::NodeType::MemberAccess) {
+            Value obj_val = eval(child_indices[nodes[target_id].children_offset]);
+            uint32_t offset = nodes[target_id].extra_data & 0x7FFFFFFF;
+            obj_val.as.arr[offset] = val;
         }
         return val;
     }
@@ -258,6 +272,7 @@ void VM::execute(Parser::NodeId id) {
             if (!arg.as.b) panic("Утверждение ложно (assert failed)");
             break;
         }
+  case Parser::NodeType::StructDecl:
   case Parser::NodeType::TypeAlias: {
       break; // Ничего не делаем в рантайме
   }

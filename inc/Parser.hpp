@@ -54,7 +54,7 @@ public:
   Parser(const std::vector<Lexer::Token> &tokens);
   NodeId parse();
 
-  const std::vector<ASTNode> &get_nodes() const { return nodes; }
+  std::vector<ASTNode>& get_nodes() { return nodes; }
   const std::vector<NodeId> &get_child_indices() const { return child_indices; }
 
 private:
@@ -123,6 +123,7 @@ private:
   NodeId call(bool can_assign);
   NodeId builtin_input(bool can_assign);
   NodeId indexing(bool can_assign);
+  NodeId member_access(bool can_assign);
 };
 
 } // namespace Parser

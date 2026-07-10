@@ -139,6 +139,7 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::Identifier)] = {&Parser::variable, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwInput)] = {&Parser::builtin_input, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::LBracket)] = {nullptr, &Parser::indexing, PREC_CALL};
+    r[static_cast<int>(Lexer::TokenType::Dot)] = {nullptr, &Parser::member_access, PREC_CALL};
     return r;
   }();
   return &rules[static_cast<int>(type)];
@@ -318,8 +319,21 @@ NodeId Parser::func_declaration() {
     children[1] = block(); // Тело функции
     
     return create_node(NodeType::FuncDecl, name, children);
-} // Реализация парсинга параметров и тела
-NodeId Parser::struct_declaration() { return InvalidNode; }
+}
+NodeId Parser::struct_declaration() {
+    Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя структуры");
+    consume(Lexer::TokenType::LBrace, "Ожидалось '{'");
+    std::vector<NodeId> fields;
+    while (!check(Lexer::TokenType::RBrace) && !check(Lexer::TokenType::Eof)) {
+        Lexer::Token type_tok = advance();
+        Lexer::Token field_name = consume(Lexer::TokenType::Identifier, "Ожидалось имя поля");
+        consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+        fields.push_back(create_node(NodeType::Identifier, type_tok));
+        fields.push_back(create_node(NodeType::Identifier, field_name));
+    }
+    consume(Lexer::TokenType::RBrace, "Ожидалось '}'");
+    return create_node(NodeType::StructDecl, name, fields);
+}
 NodeId Parser::type_alias() {
     Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя синонима");
     consume(Lexer::TokenType::Equal, "Ожидалось '='");
@@ -381,6 +395,18 @@ NodeId Parser::indexing(bool can_assign) {
         return create_node(NodeType::Assign, previous(), {index_node, value});
     }
     return index_node;
+}
+
+NodeId Parser::member_access(bool can_assign) {
+    NodeId left = static_cast<NodeId>(nodes.size() - 1);
+    Lexer::Token field_name = consume(Lexer::TokenType::Identifier, "Ожидалось имя поля после '.'");
+    NodeId access_node = create_node(NodeType::MemberAccess, field_name, {left});
+    
+    if (can_assign && match(Lexer::TokenType::Equal)) {
+        NodeId value = expression();
+        return create_node(NodeType::Assign, previous(), {access_node, value});
+    }
+    return access_node;
 }
 
 } // namespace Parser
