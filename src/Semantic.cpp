@@ -336,9 +336,16 @@ TypeId Analyzer::check(Parser::NodeId id) {
             if (node.children_count - 1 != sig.param_types.size()) {
                 error(node.token, "Неверное количество аргументов");
             }
+            auto resolve_alias = [&](TypeId id) {
+                while (type_table.get_type(id).kind == TypeKind::Alias) {
+                    id = type_table.get_type(id).base_type;
+                }
+                return id;
+            };
+            
             for (uint32_t i = 1; i < node.children_count; ++i) {
                 TypeId arg_type = check(child_indices[node.children_offset + i]);
-                if (arg_type != sig.param_types[i - 1]) error(node.token, "Несоответствие типа аргумента");
+                if (resolve_alias(arg_type) != resolve_alias(sig.param_types[i - 1])) error(node.token, "Несоответствие типа аргумента");
             }
             result = sig.return_type;
             break;
@@ -348,7 +355,14 @@ TypeId Analyzer::check(Parser::NodeId id) {
             if (node.children_count > 0) {
                 ret_type = check(child_indices[node.children_offset]);
             }
-            if (ret_type != current_func_return_type) {
+            auto resolve_alias = [&](TypeId id) {
+                while (type_table.get_type(id).kind == TypeKind::Alias) {
+                    id = type_table.get_type(id).base_type;
+                }
+                return id;
+            };
+            
+            if (resolve_alias(ret_type) != resolve_alias(current_func_return_type)) {
                 error(node.token, "Тип возвращаемого значения не совпадает с сигнатурой функции");
             }
             result = ret_type;
