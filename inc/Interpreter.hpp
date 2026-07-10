@@ -52,6 +52,8 @@ private:
 
   Environment env;
   bool should_return = false;
+  bool should_break = false;
+  bool should_continue = false;
   Value return_value;
   std::unordered_map<Lexer::IdentId, Parser::NodeId> functions;
 

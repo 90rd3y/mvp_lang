@@ -1,4 +1,5 @@
 #include "../inc/Interpreter.hpp"
+#include <cstring>
 #include <cmath>
 #include <iostream>
 
@@ -162,13 +163,26 @@ Value VM::eval(Parser::NodeId id) {
             env.set_scopes(old_scopes); // Восстанавливаем фрейм
             return ret_val;
         }
+        case Parser::NodeType::BuiltinInput: {
+            std::string input_str;
+            std::getline(std::cin, input_str);
+            
+            // Выделяем память под строку в runtime_arena
+            char* mem = static_cast<char*>(arena.alloc(input_str.size() + 1, 1));
+            std::memcpy(mem, input_str.data(), input_str.size());
+            mem[input_str.size()] = '\0';
+            
+            Value v; v.kind = Semantic::TypeKind::String;
+            v.as.s = mem;
+            return v;
+        }
   default:
     return Value();
   }
 }
 
 void VM::execute(Parser::NodeId id) {
-  if (id == Parser::InvalidNode || should_return)
+  if (id == Parser::InvalidNode || should_return || should_break || should_continue)
     return;
   const auto &node = nodes[id];
 
@@ -178,7 +192,7 @@ void VM::execute(Parser::NodeId id) {
             env.enter_scope();
             for (uint32_t i = 0; i < node.children_count; ++i) {
                 execute(child_indices[node.children_offset + i]);
-                if (should_return) break; // Прерываем выполнение блока при return
+                if (should_return || should_break || should_continue) break; // Прерываем блок
             }
             env.exit_scope();
             break;
@@ -194,6 +208,22 @@ void VM::execute(Parser::NodeId id) {
             } else {
                 return_value = Value();
             }
+            break;
+        }
+        case Parser::NodeType::Break: should_break = true; break;
+        case Parser::NodeType::Continue: should_continue = true; break;
+        case Parser::NodeType::BuiltinExit: {
+            Value arg = eval(child_indices[node.children_offset]);
+            std::exit(arg.as.i64);
+        }
+        case Parser::NodeType::BuiltinPanic: {
+            Value arg = eval(child_indices[node.children_offset]);
+            panic(arg.as.s);
+            break;
+        }
+        case Parser::NodeType::BuiltinAssert: {
+            Value arg = eval(child_indices[node.children_offset]);
+            if (!arg.as.b) panic("Утверждение ложно (assert failed)");
             break;
         }
   case Parser::NodeType::VarDecl: {
@@ -229,8 +259,13 @@ void VM::execute(Parser::NodeId id) {
         case Parser::NodeType::While: {
             while (true) {
                 Value cond = eval(child_indices[node.children_offset]);
-                if (!cond.as.b) break; // Выходим, если ложь
+                if (!cond.as.b) break;
+                
                 execute(child_indices[node.children_offset + 1]);
+                
+                if (should_break) { should_break = false; break; }
+                if (should_continue) { should_continue = false; continue; }
+                if (should_return) break;
             }
             break;
         }

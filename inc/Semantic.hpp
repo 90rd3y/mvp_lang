@@ -88,6 +88,7 @@ private:
   };
   std::unordered_map<Lexer::IdentId, FuncSignature> functions;
   TypeId current_func_return_type = 0;
+  int loop_depth = 0;
   TypeId parse_type_token(Lexer::Token tok);
 
   TypeId check(Parser::NodeId id);

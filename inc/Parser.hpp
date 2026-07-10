@@ -36,6 +36,7 @@ enum class NodeType {
   Break,
   Continue,
   ExprStmt,
+  BuiltinExit, BuiltinPanic, BuiltinAssert, BuiltinInput,
 
   Program
 };
@@ -119,6 +120,7 @@ private:
   NodeId literal(bool can_assign);
   NodeId variable(bool can_assign);
   NodeId call(bool can_assign);
+  NodeId builtin_input(bool can_assign);
 };
 
 } // namespace Parser

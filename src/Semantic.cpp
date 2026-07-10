@@ -139,8 +139,38 @@ TypeId Analyzer::check(Parser::NodeId id) {
             if (cond_type != type_table.get_builtin(TypeKind::Bool)) {
                 error(node.token, "Условие 'пока' должно иметь логический тип");
             }
+            loop_depth++;
             check(child_indices[node.children_offset + 1]); // Проверяем тело цикла
+            loop_depth--;
             result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
+        case Parser::NodeType::Break:
+        case Parser::NodeType::Continue: {
+            if (loop_depth == 0) error(node.token, "Инструкция управления циклом вне цикла");
+            result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
+        case Parser::NodeType::BuiltinExit: {
+            if (check(child_indices[node.children_offset]) != type_table.get_builtin(TypeKind::Int))
+                error(node.token, "выход() ожидает целое число");
+            result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
+        case Parser::NodeType::BuiltinPanic: {
+            if (check(child_indices[node.children_offset]) != type_table.get_builtin(TypeKind::String))
+                error(node.token, "паника() ожидает строку");
+            result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
+        case Parser::NodeType::BuiltinAssert: {
+            if (check(child_indices[node.children_offset]) != type_table.get_builtin(TypeKind::Bool))
+                error(node.token, "утверждение() ожидает логическое значение");
+            result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
+        case Parser::NodeType::BuiltinInput: {
+            result = type_table.get_builtin(TypeKind::String);
             break;
         }
         case Parser::NodeType::FuncDecl: {

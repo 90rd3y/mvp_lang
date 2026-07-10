@@ -129,6 +129,7 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::KwTrue)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwFalse)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Identifier)] = {&Parser::variable, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::KwInput)] = {&Parser::builtin_input, nullptr, PREC_NONE};
     return r;
   }();
   return &rules[static_cast<int>(type)];
@@ -192,6 +193,35 @@ NodeId Parser::statement() {
     return while_statement();
   if (match(Lexer::TokenType::KwReturn))
     return return_statement();
+  if (match(Lexer::TokenType::KwBreak)) {
+      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+      return create_node(NodeType::Break, previous());
+  }
+  if (match(Lexer::TokenType::KwContinue)) {
+      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+      return create_node(NodeType::Continue, previous());
+  }
+  if (match(Lexer::TokenType::KwExit)) {
+      consume(Lexer::TokenType::LParen, "Ожидалось '('");
+      NodeId arg = expression();
+      consume(Lexer::TokenType::RParen, "Ожидалось ')'");
+      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+      return create_node(NodeType::BuiltinExit, previous(), {arg});
+  }
+  if (match(Lexer::TokenType::KwPanic)) {
+      consume(Lexer::TokenType::LParen, "Ожидалось '('");
+      NodeId arg = expression();
+      consume(Lexer::TokenType::RParen, "Ожидалось ')'");
+      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+      return create_node(NodeType::BuiltinPanic, previous(), {arg});
+  }
+  if (match(Lexer::TokenType::KwAssert)) {
+      consume(Lexer::TokenType::LParen, "Ожидалось '('");
+      NodeId arg = expression();
+      consume(Lexer::TokenType::RParen, "Ожидалось ')'");
+      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+      return create_node(NodeType::BuiltinAssert, previous(), {arg});
+  }
   if (match(Lexer::TokenType::LBrace))
     return block();
 
@@ -295,6 +325,13 @@ NodeId Parser::return_statement() {
     }
     consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
     return create_node(NodeType::Return, ret_tok, expr != InvalidNode ? std::vector<NodeId>{expr} : std::vector<NodeId>{});
+}
+
+NodeId Parser::builtin_input(bool) {
+    Lexer::Token tok = previous();
+    consume(Lexer::TokenType::LParen, "Ожидалось '(' после 'ввод'");
+    consume(Lexer::TokenType::RParen, "Ожидалось ')' после 'ввод'");
+    return create_node(NodeType::BuiltinInput, tok);
 }
 
 } // namespace Parser
