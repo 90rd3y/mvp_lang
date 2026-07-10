@@ -202,12 +202,14 @@ void VM::execute(Parser::NodeId id) {
             break;
         }
         case Parser::NodeType::Return: {
-            should_return = true;
+            Value ret_val;
             if (node.children_count > 0) {
-                return_value = eval(child_indices[node.children_offset]);
+                ret_val = eval(child_indices[node.children_offset]);
             } else {
-                return_value = Value();
+                ret_val = Value();
             }
+            should_return = true;
+            return_value = ret_val;
             break;
         }
         case Parser::NodeType::Break: should_break = true; break;

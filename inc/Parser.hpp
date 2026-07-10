@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Lexer.hpp"
-#include <optional>
+
 #include <vector>
 
 namespace Parser {

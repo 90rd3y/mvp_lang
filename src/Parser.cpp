@@ -123,9 +123,12 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::Plus)] = {nullptr, &Parser::binary, PREC_TERM};
     r[static_cast<int>(Lexer::TokenType::Minus)] = {&Parser::unary, &Parser::binary, PREC_TERM};
     r[static_cast<int>(Lexer::TokenType::Star)] = {nullptr, &Parser::binary, PREC_FACTOR};
+    r[static_cast<int>(Lexer::TokenType::Slash)] = {nullptr, &Parser::binary, PREC_FACTOR};
     r[static_cast<int>(Lexer::TokenType::Less)] = {nullptr, &Parser::binary, PREC_COMPARISON};
     r[static_cast<int>(Lexer::TokenType::EqualEqual)] = {nullptr, &Parser::binary, PREC_EQUALITY};
     r[static_cast<int>(Lexer::TokenType::Int)] = {&Parser::literal, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::Float)] = {&Parser::literal, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::String)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwTrue)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwFalse)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Identifier)] = {&Parser::variable, nullptr, PREC_NONE};
