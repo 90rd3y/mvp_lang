@@ -82,6 +82,14 @@ private:
   SymbolTable symbol_table;
   std::vector<TypeId> node_resolved_types; // Аннотация AST типами
 
+  struct FuncSignature {
+      TypeId return_type;
+      std::vector<TypeId> param_types;
+  };
+  std::unordered_map<Lexer::IdentId, FuncSignature> functions;
+  TypeId current_func_return_type = 0;
+  TypeId parse_type_token(Lexer::Token tok);
+
   TypeId check(Parser::NodeId id);
 
   // Вспомогательные методы проверки

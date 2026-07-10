@@ -29,6 +29,8 @@ public:
 
   void enter_scope();
   void exit_scope();
+  std::vector<std::unordered_map<Lexer::IdentId, Value>> get_scopes() const { return scopes; }
+  void set_scopes(const std::vector<std::unordered_map<Lexer::IdentId, Value>>& s) { scopes = s; }
 
 private:
   std::vector<std::unordered_map<Lexer::IdentId, Value>> scopes;
@@ -51,6 +53,7 @@ private:
   Environment env;
   bool should_return = false;
   Value return_value;
+  std::unordered_map<Lexer::IdentId, Parser::NodeId> functions;
 
   Value eval(Parser::NodeId id);
   void execute(Parser::NodeId id);

@@ -143,6 +143,57 @@ TypeId Analyzer::check(Parser::NodeId id) {
             result = type_table.get_builtin(TypeKind::Void);
             break;
         }
+        case Parser::NodeType::FuncDecl: {
+            FuncSignature sig;
+            sig.return_type = parse_type_token(nodes[child_indices[node.children_offset]].token);
+            
+            for (uint32_t i = 2; i < node.children_count; i += 2) {
+                sig.param_types.push_back(parse_type_token(nodes[child_indices[node.children_offset + i]].token));
+            }
+            functions[node.token.data] = sig;
+            
+            symbol_table.enter_scope();
+            for (uint32_t i = 2; i < node.children_count; i += 2) {
+                Lexer::IdentId arg_name = nodes[child_indices[node.children_offset + i + 1]].token.data;
+                symbol_table.declare(arg_name, {sig.param_types[(i-2)/2], true, true});
+            }
+            
+            TypeId old_ret = current_func_return_type;
+            current_func_return_type = sig.return_type;
+            check(child_indices[node.children_offset + 1]); // Проверяем тело
+            current_func_return_type = old_ret;
+            
+            symbol_table.exit_scope();
+            result = type_table.get_builtin(TypeKind::Void);
+            break;
+        }
+        case Parser::NodeType::Call: {
+            Parser::NodeId callee_id = child_indices[node.children_offset];
+            Lexer::IdentId func_name = nodes[callee_id].token.data;
+            if (!functions.count(func_name)) error(node.token, "Вызов неизвестной функции");
+            
+            auto& sig = functions[func_name];
+            if (node.children_count - 1 != sig.param_types.size()) {
+                error(node.token, "Неверное количество аргументов");
+            }
+            for (uint32_t i = 1; i < node.children_count; ++i) {
+                TypeId arg_type = check(child_indices[node.children_offset + i]);
+                if (arg_type != sig.param_types[i - 1]) error(node.token, "Несоответствие типа аргумента");
+            }
+            result = sig.return_type;
+            break;
+        }
+        case Parser::NodeType::Return: {
+            TypeId ret_type = type_table.get_builtin(TypeKind::Void);
+            if (node.children_count > 0) {
+                ret_type = check(child_indices[node.children_offset]);
+            }
+            if (ret_type != current_func_return_type) {
+                error(node.token, "Тип возвращаемого значения не совпадает с сигнатурой функции");
+            }
+            result = ret_type;
+            break;
+        }
   default:
     break;
   }
@@ -207,5 +258,15 @@ TypeId Analyzer::check_assignment(Parser::NodeId id) {
 }
 
 void Analyzer::analyze(Parser::NodeId root) { check(root); }
+
+TypeId Analyzer::parse_type_token(Lexer::Token tok) {
+    switch (tok.type) {
+        case Lexer::TokenType::KwInt: return type_table.get_builtin(TypeKind::Int);
+        case Lexer::TokenType::KwFloat: return type_table.get_builtin(TypeKind::Float);
+        case Lexer::TokenType::KwBool: return type_table.get_builtin(TypeKind::Bool);
+        case Lexer::TokenType::KwVoid: return type_table.get_builtin(TypeKind::Void);
+        default: return 0;
+    }
+}
 
 } // namespace Semantic

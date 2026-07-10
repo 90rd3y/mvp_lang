@@ -128,6 +128,40 @@ Value VM::eval(Parser::NodeId id) {
     env.assign(node.token.data, val);
     return val;
   }
+        case Parser::NodeType::Call: {
+            Parser::NodeId callee_id = child_indices[node.children_offset];
+            Lexer::IdentId func_name = nodes[callee_id].token.data;
+            if (!functions.count(func_name)) panic("Функция не найдена в рантайме");
+            
+            Parser::NodeId func_node_id = functions[func_name];
+            const auto& func_node = nodes[func_node_id];
+            
+            std::vector<Value> args;
+            for (uint32_t i = 1; i < node.children_count; ++i) {
+                args.push_back(eval(child_indices[node.children_offset + i]));
+            }
+            
+            // Создаем новый фрейм стека вызовов
+            auto old_scopes = env.get_scopes();
+            std::vector<std::unordered_map<Lexer::IdentId, Value>> new_scopes;
+            new_scopes.push_back(old_scopes[0]); // Глобальная область
+            new_scopes.push_back({}); // Локальная область функции
+            env.set_scopes(new_scopes);
+            
+            for (uint32_t i = 2; i < func_node.children_count; i += 2) {
+                Lexer::IdentId arg_name = nodes[child_indices[func_node.children_offset + i + 1]].token.data;
+                env.define(arg_name, args[(i-2)/2]);
+            }
+            
+            execute(child_indices[func_node.children_offset + 1]);
+            
+            Value ret_val = return_value;
+            should_return = false;
+            return_value = Value();
+            
+            env.set_scopes(old_scopes); // Восстанавливаем фрейм
+            return ret_val;
+        }
   default:
     return Value();
   }
@@ -139,15 +173,29 @@ void VM::execute(Parser::NodeId id) {
   const auto &node = nodes[id];
 
   switch (node.type) {
-  case Parser::NodeType::Program:
-  case Parser::NodeType::Block: {
-    env.enter_scope();
-    for (uint32_t i = 0; i < node.children_count; ++i) {
-      execute(child_indices[node.children_offset + i]);
-    }
-    env.exit_scope();
-    break;
-  }
+        case Parser::NodeType::Program:
+        case Parser::NodeType::Block: {
+            env.enter_scope();
+            for (uint32_t i = 0; i < node.children_count; ++i) {
+                execute(child_indices[node.children_offset + i]);
+                if (should_return) break; // Прерываем выполнение блока при return
+            }
+            env.exit_scope();
+            break;
+        }
+        case Parser::NodeType::FuncDecl: {
+            functions[node.token.data] = id;
+            break;
+        }
+        case Parser::NodeType::Return: {
+            should_return = true;
+            if (node.children_count > 0) {
+                return_value = eval(child_indices[node.children_offset]);
+            } else {
+                return_value = Value();
+            }
+            break;
+        }
   case Parser::NodeType::VarDecl: {
     Value val = eval(child_indices[node.children_offset]);
     env.define(node.token.data, val);
@@ -193,8 +241,16 @@ void VM::execute(Parser::NodeId id) {
 }
 
 int VM::run(Parser::NodeId root) {
-  execute(root);
-  return 0;
+    execute(root); // Регистрация функций
+    
+    Lexer::IdentId main_id = pool.intern("main");
+    if (!functions.count(main_id)) panic("Точка входа 'main' не найдена");
+    
+    Parser::NodeId main_node = functions[main_id];
+    execute(child_indices[nodes[main_node].children_offset + 1]); // Выполняем тело main
+    
+    if (return_value.kind == Semantic::TypeKind::Int) return return_value.as.i64;
+    return 0;
 }
 
 } // namespace Interpreter

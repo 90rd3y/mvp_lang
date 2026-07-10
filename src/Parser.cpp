@@ -119,7 +119,7 @@ NodeId Parser::binary(bool) {
 const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
   static const auto rules = []() {
     std::array<ParseRule, static_cast<size_t>(Lexer::TokenType::Error) + 1> r{};
-    r[static_cast<int>(Lexer::TokenType::LParen)] = {&Parser::grouping, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::LParen)] = {&Parser::grouping, &Parser::call, PREC_CALL};
     r[static_cast<int>(Lexer::TokenType::Plus)] = {nullptr, &Parser::binary, PREC_TERM};
     r[static_cast<int>(Lexer::TokenType::Minus)] = {&Parser::unary, &Parser::binary, PREC_TERM};
     r[static_cast<int>(Lexer::TokenType::Star)] = {nullptr, &Parser::binary, PREC_FACTOR};
@@ -220,8 +220,45 @@ NodeId Parser::unary(bool) {
   NodeId arg = parse_precedence(PREC_UNARY);
   return create_node(NodeType::UnaryOp, op, {arg});
 }
+NodeId Parser::call(bool can_assign) {
+    NodeId callee = static_cast<NodeId>(nodes.size() - 1); // Левый узел (имя функции)
+    std::vector<NodeId> args;
+    args.push_back(callee);
+    if (!check(Lexer::TokenType::RParen)) {
+        do {
+            args.push_back(expression());
+        } while (match(Lexer::TokenType::Comma));
+    }
+    consume(Lexer::TokenType::RParen, "Ожидалось ')' после аргументов");
+    return create_node(NodeType::Call, previous(), args);
+}
+
 NodeId Parser::func_declaration() {
-  return InvalidNode;
+    Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя функции");
+    consume(Lexer::TokenType::LParen, "Ожидалось '('");
+    std::vector<NodeId> children;
+    
+    children.push_back(InvalidNode); // Заглушка для типа возврата (индекс 0)
+    children.push_back(InvalidNode); // Заглушка для тела (индекс 1)
+    
+    if (!check(Lexer::TokenType::RParen)) {
+        do {
+            Lexer::Token type_tok = advance(); // Тип аргумента
+            Lexer::Token arg_name = consume(Lexer::TokenType::Identifier, "Ожидалось имя аргумента");
+            children.push_back(create_node(NodeType::Identifier, type_tok));
+            children.push_back(create_node(NodeType::Identifier, arg_name));
+        } while (match(Lexer::TokenType::Comma));
+    }
+    consume(Lexer::TokenType::RParen, "Ожидалось ')'");
+    
+    consume(Lexer::TokenType::Colon, "Ожидалось ':'");
+    Lexer::Token ret_type = advance();
+    children[0] = create_node(NodeType::Identifier, ret_type);
+    
+    consume(Lexer::TokenType::LBrace, "Ожидалось '{' перед телом функции");
+    children[1] = block(); // Тело функции
+    
+    return create_node(NodeType::FuncDecl, name, children);
 } // Реализация парсинга параметров и тела
 NodeId Parser::struct_declaration() { return InvalidNode; }
 NodeId Parser::type_alias() { return InvalidNode; }
@@ -250,6 +287,14 @@ NodeId Parser::while_statement() {
     NodeId body = statement();
     return create_node(NodeType::While, while_tok, {condition, body});
 }
-NodeId Parser::return_statement() { return InvalidNode; }
+NodeId Parser::return_statement() {
+    Lexer::Token ret_tok = previous();
+    NodeId expr = InvalidNode;
+    if (!check(Lexer::TokenType::Semicolon)) {
+        expr = expression();
+    }
+    consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+    return create_node(NodeType::Return, ret_tok, expr != InvalidNode ? std::vector<NodeId>{expr} : std::vector<NodeId>{});
+}
 
 } // namespace Parser
