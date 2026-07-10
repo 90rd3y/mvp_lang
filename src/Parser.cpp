@@ -126,7 +126,11 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::Star)] = {nullptr, &Parser::binary, PREC_FACTOR};
     r[static_cast<int>(Lexer::TokenType::Slash)] = {nullptr, &Parser::binary, PREC_FACTOR};
     r[static_cast<int>(Lexer::TokenType::Less)] = {nullptr, &Parser::binary, PREC_COMPARISON};
+    r[static_cast<int>(Lexer::TokenType::LessEqual)] = {nullptr, &Parser::binary, PREC_COMPARISON};
+    r[static_cast<int>(Lexer::TokenType::Greater)] = {nullptr, &Parser::binary, PREC_COMPARISON};
+    r[static_cast<int>(Lexer::TokenType::GreaterEqual)] = {nullptr, &Parser::binary, PREC_COMPARISON};
     r[static_cast<int>(Lexer::TokenType::EqualEqual)] = {nullptr, &Parser::binary, PREC_EQUALITY};
+    r[static_cast<int>(Lexer::TokenType::BangEqual)] = {nullptr, &Parser::binary, PREC_EQUALITY};
     r[static_cast<int>(Lexer::TokenType::Int)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Float)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::String)] = {&Parser::literal, nullptr, PREC_NONE};

@@ -335,7 +335,11 @@ TypeId Analyzer::check_binary(Parser::NodeId id) {
 
   // Для сравнений возвращаем bool, для арифметики — тип операндов
   if (node.token.type == Lexer::TokenType::EqualEqual ||
-      node.token.type == Lexer::TokenType::Less) {
+      node.token.type == Lexer::TokenType::BangEqual ||
+      node.token.type == Lexer::TokenType::Less ||
+      node.token.type == Lexer::TokenType::LessEqual ||
+      node.token.type == Lexer::TokenType::Greater ||
+      node.token.type == Lexer::TokenType::GreaterEqual) {
     return type_table.get_builtin(TypeKind::Bool);
   }
   return left;

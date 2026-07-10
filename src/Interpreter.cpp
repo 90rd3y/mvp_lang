@@ -119,6 +119,22 @@ Value VM::eval(Parser::NodeId id) {
       res.kind = Semantic::TypeKind::Bool;
       res.as.b = (left.as.i64 < right.as.i64); // Упрощенно
       break;
+    case Lexer::TokenType::LessEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 <= right.as.i64);
+      break;
+    case Lexer::TokenType::Greater:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 > right.as.i64);
+      break;
+    case Lexer::TokenType::GreaterEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 >= right.as.i64);
+      break;
+    case Lexer::TokenType::BangEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 != right.as.i64);
+      break;
     default:
       break;
     }
