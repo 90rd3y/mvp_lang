@@ -33,8 +33,8 @@ void print_ast(const std::vector<Parser::ASTNode> &nodes,
   case Parser::NodeType::VarDecl:
     std::cout << "VarDecl";
     break;
-  case Parser::NodeType::Assign:
-    std::cout << "Assign";
+  case Parser::NodeType::AssignStmt:
+    std::cout << "AssignStmt";
     break;
   case Parser::NodeType::BinaryOp:
     std::cout << "BinaryOp (" << node.token.lexeme << ")";
@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
 
   // === ФАЗА 1: Инициализация и Лексический анализ ===
   Memory::Arena
-      ast_arena; // Арена для интернирования строк и типов на этапе компиляции
+      ast_arena; // Арена для интернирования строк и типов на этапе статического анализа
   Lexer::StringPool pool(ast_arena);
 
   Lexer::Scanner scanner(source_code, pool);
@@ -116,7 +116,7 @@ int main(int argc, char *argv[]) {
   }
 
   // === ФАЗА 2: Синтаксический анализ ===
-  Parser::Parser parser(tokens);
+  Parser::Parser parser(tokens, pool);
   Parser::NodeId root = parser.parse();
 
   if (dump_ast) {

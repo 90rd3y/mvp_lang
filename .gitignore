@@ -12,4 +12,4 @@ myi
 .DS_Store
 .vscode/
 .idea/
-*.swp
+*.swparchive/patch_backups/

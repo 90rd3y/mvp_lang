@@ -157,9 +157,8 @@ TokenType Scanner::check_keyword(std::string_view text) {
       {"вернуть", TokenType::KwReturn}, {"истина", TokenType::KwTrue},
       {"ложь", TokenType::KwFalse},     {"структура", TokenType::KwStruct},
       {"тип", TokenType::KwType},       {"массив", TokenType::KwArray},
-      {"функция", TokenType::KwFunc},   {"печать", TokenType::KwPrint},
-      {"ввод", TokenType::KwInput},     {"выход", TokenType::KwExit},
-      {"паника", TokenType::KwPanic},   {"утверждение", TokenType::KwAssert}};
+      {"функция", TokenType::KwFunc},   {"пространство", TokenType::KwNamespace},
+      {"как", TokenType::KwAs}};
   auto it = keywords.find(text);
   return (it != keywords.end()) ? it->second : TokenType::Identifier;
 }
@@ -216,7 +215,8 @@ std::vector<Token> Scanner::tokenize() {
         tokens.push_back(make_token(TokenType::Dot));
         break;
       case ':':
-        tokens.push_back(make_token(TokenType::Colon));
+        tokens.push_back(
+            make_token(match(':') ? TokenType::ColonColon : TokenType::Colon));
         break;
       case '+':
         tokens.push_back(make_token(TokenType::Plus));
