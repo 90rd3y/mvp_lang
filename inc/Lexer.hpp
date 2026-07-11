@@ -37,11 +37,8 @@ enum class TokenType {
   KwType,
   KwArray,
   KwFunc,
-  KwPrint,
-  KwInput,
-  KwExit,
-  KwPanic,
-  KwAssert,
+  KwNamespace,
+  KwAs,
 
   // Операторы и разделители
   Plus,
@@ -62,7 +59,8 @@ enum class TokenType {
   Dot,
   Comma,
   Colon,
-  Semicolon, // . , : ;
+  ColonColon,
+  Semicolon, // . , : :: ;
   LParen,
   RParen,
   LBrace,

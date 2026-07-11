@@ -19,10 +19,12 @@ enum class NodeType {
   Identifier,
   BinaryOp,
   UnaryOp,
-  Assign,
   Call,
   Indexing,
   MemberAccess,
+  Cast,
+  ArrayLiteral,
+  StructLiteral,
 
   // Инструкции
   Block,
@@ -30,13 +32,14 @@ enum class NodeType {
   FuncDecl,
   StructDecl,
   TypeAlias,
+  NamespaceDecl,
   If,
   While,
   Return,
   Break,
   Continue,
   ExprStmt,
-  BuiltinExit, BuiltinPanic, BuiltinAssert, BuiltinInput,
+  AssignStmt,
 
   Program
 };
@@ -51,7 +54,7 @@ struct ASTNode {
 
 class Parser {
 public:
-  Parser(const std::vector<Lexer::Token> &tokens);
+  Parser(const std::vector<Lexer::Token> &tokens, Lexer::StringPool &pool);
   NodeId parse();
 
   std::vector<ASTNode>& get_nodes() { return nodes; }
@@ -59,6 +62,7 @@ public:
 
 private:
   const std::vector<Lexer::Token> &tokens;
+  Lexer::StringPool &pool;
   size_t current = 0;
 
   std::vector<ASTNode> nodes;
@@ -81,7 +85,9 @@ private:
   NodeId func_declaration();
   NodeId struct_declaration();
   NodeId type_alias();
+  NodeId namespace_declaration();
   NodeId statement();
+  NodeId assign_statement();
   NodeId if_statement();
   NodeId while_statement();
   NodeId block();
@@ -118,10 +124,12 @@ private:
   NodeId grouping(bool can_assign);
   NodeId unary(bool can_assign);
   NodeId binary(bool can_assign);
-  NodeId literal(bool can_assign);
   NodeId variable(bool can_assign);
+  NodeId literal(bool can_assign);
+  NodeId array_literal(bool can_assign);
+  NodeId string_literal(bool can_assign);
   NodeId call(bool can_assign);
-  NodeId builtin_input(bool can_assign);
+  NodeId cast(bool can_assign);
   NodeId indexing(bool can_assign);
   NodeId member_access(bool can_assign);
 };

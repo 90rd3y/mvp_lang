@@ -3,7 +3,7 @@
 
 namespace Parser {
 
-Parser::Parser(const std::vector<Lexer::Token> &t) : tokens(t) {
+Parser::Parser(const std::vector<Lexer::Token> &t, Lexer::StringPool &p) : tokens(t), pool(p) {
   // Резервируем нулевой узел как невалидный
   nodes.push_back(
       {NodeType::None, {Lexer::TokenType::Error, 0, 0, 0, ""}, 0, 0});
@@ -94,14 +94,43 @@ NodeId Parser::literal(bool) {
   }
 }
 
-NodeId Parser::variable(bool can_assign) {
+NodeId Parser::variable(bool) {
     Lexer::Token name = previous();
-    NodeId var_node = create_node(NodeType::Identifier, name);
-    if (can_assign && match(Lexer::TokenType::Equal)) {
-        NodeId value = expression();
-        return create_node(NodeType::Assign, previous(), {var_node, value}); // Теперь Assign имеет 2 детей: цель и значение
+    std::string full_name = std::string(name.lexeme);
+    while (match(Lexer::TokenType::ColonColon)) {
+        Lexer::Token part = consume(Lexer::TokenType::Identifier, "Ожидалось имя после '::'");
+        full_name += "::" + std::string(part.lexeme);
     }
-    return var_node;
+    Lexer::Token full_token = name;
+    full_token.data = pool.intern(full_name);
+    full_token.lexeme = pool.get(full_token.data);
+
+    // Если после идентификатора идет '{', это литерал структуры
+    if (match(Lexer::TokenType::LBrace)) {
+        std::vector<NodeId> elements;
+        elements.push_back(create_node(NodeType::Identifier, full_token)); // Имя структуры
+        if (!check(Lexer::TokenType::RBrace)) {
+            do {
+                elements.push_back(expression());
+            } while (match(Lexer::TokenType::Comma));
+        }
+        consume(Lexer::TokenType::RBrace, "Ожидалось '}'");
+        return create_node(NodeType::StructLiteral, full_token, elements);
+    }
+
+    return create_node(NodeType::Identifier, full_token);
+}
+
+NodeId Parser::array_literal(bool) {
+    Lexer::Token bracket = previous();
+    std::vector<NodeId> elements;
+    if (!check(Lexer::TokenType::RBracket)) {
+        do {
+            elements.push_back(expression());
+        } while (match(Lexer::TokenType::Comma));
+    }
+    consume(Lexer::TokenType::RBracket, "Ожидалось ']'");
+    return create_node(NodeType::ArrayLiteral, bracket, elements);
 }
 
 NodeId Parser::binary(bool) {
@@ -137,8 +166,8 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::KwTrue)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwFalse)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Identifier)] = {&Parser::variable, nullptr, PREC_NONE};
-    r[static_cast<int>(Lexer::TokenType::KwInput)] = {&Parser::builtin_input, nullptr, PREC_NONE};
-    r[static_cast<int>(Lexer::TokenType::LBracket)] = {nullptr, &Parser::indexing, PREC_CALL};
+    r[static_cast<int>(Lexer::TokenType::KwAs)] = {&Parser::cast, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::LBracket)] = {&Parser::array_literal, &Parser::indexing, PREC_CALL};
     r[static_cast<int>(Lexer::TokenType::Dot)] = {nullptr, &Parser::member_access, PREC_CALL};
     return r;
   }();
@@ -148,6 +177,8 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
 // --- Рекурсивный спуск ---
 
 NodeId Parser::declaration() {
+  if (match(Lexer::TokenType::KwNamespace))
+    return namespace_declaration();
   if (match(Lexer::TokenType::KwFunc))
     return func_declaration();
   if (match(Lexer::TokenType::KwStruct))
@@ -159,11 +190,13 @@ NodeId Parser::declaration() {
       check(Lexer::TokenType::KwFloat) || check(Lexer::TokenType::KwBool) ||
       check(Lexer::TokenType::KwChar) || check(Lexer::TokenType::KwString) ||
       check(Lexer::TokenType::KwVoid)) {
+    advance();
     return var_declaration();
   }
   
   if (check(Lexer::TokenType::Identifier)) {
       if (current + 1 < tokens.size() && tokens[current + 1].type == Lexer::TokenType::Identifier) {
+          advance();
           return var_declaration();
       }
       if (current + 4 < tokens.size() && 
@@ -171,6 +204,7 @@ NodeId Parser::declaration() {
           tokens[current + 2].type == Lexer::TokenType::Int &&
           tokens[current + 3].type == Lexer::TokenType::RBracket &&
           tokens[current + 4].type == Lexer::TokenType::Identifier) {
+          advance();
           return var_declaration();
       }
   }
@@ -179,7 +213,7 @@ NodeId Parser::declaration() {
 }
 
 NodeId Parser::var_declaration() {
-    Lexer::Token type_token = advance();
+    Lexer::Token type_token = previous();
     uint32_t array_size = 0;
     if (match(Lexer::TokenType::LBracket)) {
         Lexer::Token size_tok = consume(Lexer::TokenType::Int, "Ожидался размер массива");
@@ -187,10 +221,10 @@ NodeId Parser::var_declaration() {
         consume(Lexer::TokenType::RBracket, "Ожидалось ']'");
     }
     Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя переменной");
-    NodeId initializer = InvalidNode;
-    if (match(Lexer::TokenType::Equal)) {
-        initializer = expression();
-    }
+    
+    // СТРОГАЯ ИНИЦИАЛИЗАЦИЯ ДЛЯ ВСЕХ ТИПОВ
+    consume(Lexer::TokenType::Equal, "Ожидалась обязательная инициализация переменной '='");
+    NodeId initializer = expression();
     consume(Lexer::TokenType::Semicolon, "Ожидалось ';' после объявления");
     
     NodeId type_node = create_node(NodeType::Identifier, type_token);
@@ -203,20 +237,39 @@ NodeId Parser::block() {
     Lexer::Token brace = previous();
     std::vector<NodeId> stmts;
     while (!check(Lexer::TokenType::RBrace) && !check(Lexer::TokenType::Eof)) {
-        // Внутри блока могут быть и переменные, и инструкции
-        stmts.push_back(declaration()); 
+        if (match(Lexer::TokenType::KwInt) || match(Lexer::TokenType::KwUint) ||
+            match(Lexer::TokenType::KwFloat) || match(Lexer::TokenType::KwBool) ||
+            match(Lexer::TokenType::KwChar) || match(Lexer::TokenType::KwString) ||
+            match(Lexer::TokenType::KwVoid)) {
+            stmts.push_back(var_declaration());
+        } else if (check(Lexer::TokenType::Identifier)) {
+            if (current + 1 < tokens.size() && tokens[current + 1].type == Lexer::TokenType::Identifier) {
+                advance();
+                stmts.push_back(var_declaration());
+            } else if (current + 4 < tokens.size() && 
+                tokens[current + 1].type == Lexer::TokenType::LBracket &&
+                tokens[current + 2].type == Lexer::TokenType::Int &&
+                tokens[current + 3].type == Lexer::TokenType::RBracket &&
+                tokens[current + 4].type == Lexer::TokenType::Identifier) {
+                advance();
+                stmts.push_back(var_declaration());
+            } else {
+                stmts.push_back(statement());
+            }
+        } else {
+            stmts.push_back(statement());
+        }
     }
     consume(Lexer::TokenType::RBrace, "Ожидалось '}'");
     return create_node(NodeType::Block, brace, stmts);
 }
 
+NodeId Parser::assign_statement() {
+    // Expected to be called directly? No, I will change signature. Wait, I will just inline it in statement.
+    return InvalidNode; // Unused
+}
+
 NodeId Parser::statement() {
-  if (match(Lexer::TokenType::KwPrint)) {
-    Lexer::Token print_tok = previous();
-    NodeId expr = expression();
-    consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
-    return create_node(NodeType::ExprStmt, print_tok, {expr});
-  }
   if (match(Lexer::TokenType::KwIf))
     return if_statement();
   if (match(Lexer::TokenType::KwWhile))
@@ -231,33 +284,20 @@ NodeId Parser::statement() {
       consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
       return create_node(NodeType::Continue, previous());
   }
-  if (match(Lexer::TokenType::KwExit)) {
-      consume(Lexer::TokenType::LParen, "Ожидалось '('");
-      NodeId arg = expression();
-      consume(Lexer::TokenType::RParen, "Ожидалось ')'");
-      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
-      return create_node(NodeType::BuiltinExit, previous(), {arg});
-  }
-  if (match(Lexer::TokenType::KwPanic)) {
-      consume(Lexer::TokenType::LParen, "Ожидалось '('");
-      NodeId arg = expression();
-      consume(Lexer::TokenType::RParen, "Ожидалось ')'");
-      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
-      return create_node(NodeType::BuiltinPanic, previous(), {arg});
-  }
-  if (match(Lexer::TokenType::KwAssert)) {
-      consume(Lexer::TokenType::LParen, "Ожидалось '('");
-      NodeId arg = expression();
-      consume(Lexer::TokenType::RParen, "Ожидалось ')'");
-      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
-      return create_node(NodeType::BuiltinAssert, previous(), {arg});
-  }
   if (match(Lexer::TokenType::LBrace))
     return block();
 
-  // По умолчанию — выражение
   NodeId expr = expression();
+  if (match(Lexer::TokenType::Equal)) {
+      Lexer::Token eq_tok = previous();
+      NodeId value = expression();
+      consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+      return create_node(NodeType::AssignStmt, eq_tok, {expr, value});
+  }
   consume(Lexer::TokenType::Semicolon, "Ожидалось ';'");
+  if (nodes[expr].type != NodeType::Call) {
+      error(previous(), "Инструкция-выражение может быть только вызовом функции");
+  }
   return create_node(NodeType::ExprStmt, previous(), {expr});
 }
 
@@ -315,10 +355,25 @@ NodeId Parser::func_declaration() {
     Lexer::Token ret_type = advance();
     children[0] = create_node(NodeType::Identifier, ret_type);
     
-    consume(Lexer::TokenType::LBrace, "Ожидалось '{' перед телом функции");
-    children[1] = block(); // Тело функции
+    if (match(Lexer::TokenType::Semicolon)) {
+        children[1] = InvalidNode;
+    } else {
+        consume(Lexer::TokenType::LBrace, "Ожидалось '{' перед телом функции");
+        children[1] = block(); // Тело функции
+    }
     
     return create_node(NodeType::FuncDecl, name, children);
+}
+
+NodeId Parser::namespace_declaration() {
+    Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя пространства имен");
+    consume(Lexer::TokenType::LBrace, "Ожидалось '{'");
+    std::vector<NodeId> decls;
+    while (!check(Lexer::TokenType::RBrace) && !check(Lexer::TokenType::Eof)) {
+        decls.push_back(declaration());
+    }
+    consume(Lexer::TokenType::RBrace, "Ожидалось '}'");
+    return create_node(NodeType::NamespaceDecl, name, decls);
 }
 NodeId Parser::struct_declaration() {
     Lexer::Token name = consume(Lexer::TokenType::Identifier, "Ожидалось имя структуры");
@@ -376,37 +431,29 @@ NodeId Parser::return_statement() {
     return create_node(NodeType::Return, ret_tok, expr != InvalidNode ? std::vector<NodeId>{expr} : std::vector<NodeId>{});
 }
 
-NodeId Parser::builtin_input(bool) {
-    Lexer::Token tok = previous();
-    consume(Lexer::TokenType::LParen, "Ожидалось '(' после 'ввод'");
-    consume(Lexer::TokenType::RParen, "Ожидалось ')' после 'ввод'");
-    return create_node(NodeType::BuiltinInput, tok);
+NodeId Parser::cast(bool) {
+    Lexer::Token as_tok = previous();
+    consume(Lexer::TokenType::Less, "Ожидалось '<' после 'как'");
+    Lexer::Token type_tok = advance();
+    consume(Lexer::TokenType::Greater, "Ожидалось '>' после типа");
+    consume(Lexer::TokenType::LParen, "Ожидалось '(' после '<Type>'");
+    NodeId expr = expression();
+    consume(Lexer::TokenType::RParen, "Ожидалось ')'");
+    return create_node(NodeType::Cast, as_tok, {create_node(NodeType::Identifier, type_tok), expr});
 }
 
-NodeId Parser::indexing(bool can_assign) {
+NodeId Parser::indexing(bool) {
     NodeId left = static_cast<NodeId>(nodes.size() - 1);
     NodeId index = expression();
     consume(Lexer::TokenType::RBracket, "Ожидалось ']'");
-    
-    NodeId index_node = create_node(NodeType::Indexing, previous(), {left, index});
-    
-    if (can_assign && match(Lexer::TokenType::Equal)) {
-        NodeId value = expression();
-        return create_node(NodeType::Assign, previous(), {index_node, value});
-    }
-    return index_node;
+
+    return create_node(NodeType::Indexing, previous(), {left, index});
 }
 
-NodeId Parser::member_access(bool can_assign) {
+NodeId Parser::member_access(bool) {
     NodeId left = static_cast<NodeId>(nodes.size() - 1);
     Lexer::Token field_name = consume(Lexer::TokenType::Identifier, "Ожидалось имя поля после '.'");
-    NodeId access_node = create_node(NodeType::MemberAccess, field_name, {left});
-    
-    if (can_assign && match(Lexer::TokenType::Equal)) {
-        NodeId value = expression();
-        return create_node(NodeType::Assign, previous(), {access_node, value});
-    }
-    return access_node;
+    return create_node(NodeType::MemberAccess, field_name, {left});
 }
 
 } // namespace Parser

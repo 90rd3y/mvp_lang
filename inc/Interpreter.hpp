@@ -57,6 +57,7 @@ private:
   bool should_continue = false;
   Value return_value;
   std::unordered_map<Lexer::IdentId, Parser::NodeId> functions;
+  std::string namespace_prefix = "";
 
   Value eval(Parser::NodeId id);
   void execute(Parser::NodeId id);

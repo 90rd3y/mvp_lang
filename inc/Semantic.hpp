@@ -93,6 +93,7 @@ private:
   std::unordered_map<Lexer::IdentId, FuncSignature> functions;
   TypeId current_func_return_type = 0;
   int loop_depth = 0;
+  std::string namespace_prefix = "";
   TypeId parse_type_token(Lexer::Token tok);
 
   TypeId check(Parser::NodeId id);
@@ -101,6 +102,9 @@ private:
   TypeId check_binary(Parser::NodeId id);
   TypeId check_literal(Parser::NodeId id);
   TypeId check_identifier(Parser::NodeId id);
+
+  TypeId resolve_alias(TypeId id);
+  bool types_compatible(TypeId t1, TypeId t2);
 
   void error(Lexer::Token token, const std::string &message);
 };

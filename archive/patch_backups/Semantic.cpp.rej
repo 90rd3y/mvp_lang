@@ -1,0 +1,10 @@
+--- Semantic.cpp
++++ Semantic.cpp
+@@ -212,6 +212,7 @@
+             }
+ 
+             nodes[id].extra_data = struct_fields[obj_type][field_name].offset;
++            std::cerr << "MEMBER ACCESS: " << pool.get(field_name) << " OFFSET: " << nodes[id].extra_data << std::endl;
+             result = struct_fields[obj_type][field_name].type;
+             break;
+         }

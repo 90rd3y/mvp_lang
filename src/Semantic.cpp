@@ -75,6 +75,26 @@ void Analyzer::error(Lexer::Token token, const std::string &message) {
   std::exit(1);
 }
 
+
+TypeId Analyzer::resolve_alias(TypeId id) {
+    while (type_table.get_type(id).kind == TypeKind::Alias) {
+        id = type_table.get_type(id).base_type;
+    }
+    return id;
+}
+
+bool Analyzer::types_compatible(TypeId t1, TypeId t2) {
+    TypeId r1 = resolve_alias(t1);
+    TypeId r2 = resolve_alias(t2);
+    if (r1 == r2) return true;
+    auto info1 = type_table.get_type(r1);
+    auto info2 = type_table.get_type(r2);
+    if (info1.kind == TypeKind::Array && info2.kind == TypeKind::Array) {
+        return info1.size == info2.size && resolve_alias(info1.base_type) == resolve_alias(info2.base_type);
+    }
+    return false;
+}
+
 TypeId Analyzer::check(Parser::NodeId id) {
   if (id == Parser::InvalidNode)
     return 0;
@@ -101,7 +121,7 @@ TypeId Analyzer::check(Parser::NodeId id) {
   case Parser::NodeType::BinaryOp:
     result = check_binary(id);
     break;
-  case Parser::NodeType::Assign: {
+  case Parser::NodeType::AssignStmt: {
       Parser::NodeId target_id = child_indices[node.children_offset];
       Parser::NodeId val_id = child_indices[node.children_offset + 1];
       
@@ -149,7 +169,7 @@ TypeId Analyzer::check(Parser::NodeId id) {
 
       if (init_id != Parser::InvalidNode) {
           TypeId init_type = check(init_id);
-          if (resolve_alias(init_type) != resolve_alias(final_type)) error(node.token, "Тип инициализатора не совпадает с типом переменной");
+          if (!types_compatible(init_type, final_type)) error(node.token, "Тип инициализатора не совпадает с типом переменной");
       }
       
       if (!symbol_table.declare(node.token.data, {final_type, true, true})) {
@@ -170,16 +190,10 @@ TypeId Analyzer::check(Parser::NodeId id) {
       for (uint32_t i = 0; i < node.children_count; i += 2) {
           TypeId field_type = parse_type_token(nodes[child_indices[node.children_offset + i]].token);
           Lexer::IdentId field_name = nodes[child_indices[node.children_offset + i + 1]].token.data;
+          if (field_type == struct_id) error(nodes[child_indices[node.children_offset + i]].token, "Рекурсивное объявление структуры");
           
           struct_fields[struct_id][field_name] = {field_type, offset};
-          
-          TypeId resolve = field_type;
-          while (type_table.get_type(resolve).kind == TypeKind::Alias) resolve = type_table.get_type(resolve).base_type;
-          if (type_table.get_type(resolve).kind == TypeKind::Struct) {
-              offset += struct_sizes[resolve];
-          } else {
-              offset += 1;
-          }
+          offset += 1;
       }
       struct_sizes[struct_id] = offset;
       result = type_table.get_builtin(TypeKind::Void);
@@ -206,7 +220,7 @@ TypeId Analyzer::check(Parser::NodeId id) {
       while (type_table.get_type(resolve).kind == TypeKind::Alias) resolve = type_table.get_type(resolve).base_type;
       bool is_struct = (type_table.get_type(resolve).kind == TypeKind::Struct);
       
-      nodes[id].extra_data = field_info.offset | (is_struct ? 0x80000000 : 0);
+      nodes[id].extra_data = field_info.offset;
       result = field_info.type;
       break;
   }
@@ -248,6 +262,29 @@ TypeId Analyzer::check(Parser::NodeId id) {
     break;
   }
 
+        case Parser::NodeType::ArrayLiteral: {
+            if (node.children_count == 0) error(node.token, "Пустые массивы не поддерживаются");
+            TypeId base_type = check(child_indices[node.children_offset]);
+            for (uint32_t i = 1; i < node.children_count; ++i) {
+                if (!types_compatible(check(child_indices[node.children_offset + i]), base_type)) {
+                    error(node.token, "Элементы массива должны быть одного типа");
+                }
+            }
+            result = type_table.register_type({TypeKind::Array, 0, node.children_count, base_type});
+            break;
+        }
+        case Parser::NodeType::StructLiteral: {
+            Lexer::IdentId struct_name = nodes[child_indices[node.children_offset]].token.data;
+            TypeId struct_id = type_table.find_by_name(struct_name);
+            if (struct_id == 0) error(node.token, "Неизвестная структура для инициализации");
+            
+            // Упрощенная проверка количества полей
+            if (node.children_count - 1 != struct_fields[struct_id].size()) {
+                error(node.token, "Неверное количество полей при инициализации структуры");
+            }
+            result = struct_id;
+            break;
+        }
         case Parser::NodeType::ExprStmt: {
             result = check(child_indices[node.children_offset]);
             break;
@@ -281,26 +318,15 @@ TypeId Analyzer::check(Parser::NodeId id) {
             result = type_table.get_builtin(TypeKind::Void);
             break;
         }
-        case Parser::NodeType::BuiltinExit: {
-            if (check(child_indices[node.children_offset]) != type_table.get_builtin(TypeKind::Int))
-                error(node.token, "выход() ожидает целое число");
+        
+        case Parser::NodeType::NamespaceDecl: {
+            std::string old_prefix = namespace_prefix;
+            namespace_prefix += std::string(pool.get(node.token.data)) + "::";
+            for (uint32_t i = 0; i < node.children_count; ++i) {
+                check(child_indices[node.children_offset + i]);
+            }
+            namespace_prefix = old_prefix;
             result = type_table.get_builtin(TypeKind::Void);
-            break;
-        }
-        case Parser::NodeType::BuiltinPanic: {
-            if (check(child_indices[node.children_offset]) != type_table.get_builtin(TypeKind::String))
-                error(node.token, "паника() ожидает строку");
-            result = type_table.get_builtin(TypeKind::Void);
-            break;
-        }
-        case Parser::NodeType::BuiltinAssert: {
-            if (check(child_indices[node.children_offset]) != type_table.get_builtin(TypeKind::Bool))
-                error(node.token, "утверждение() ожидает логическое значение");
-            result = type_table.get_builtin(TypeKind::Void);
-            break;
-        }
-        case Parser::NodeType::BuiltinInput: {
-            result = type_table.get_builtin(TypeKind::String);
             break;
         }
         case Parser::NodeType::FuncDecl: {
@@ -310,7 +336,7 @@ TypeId Analyzer::check(Parser::NodeId id) {
             for (uint32_t i = 2; i < node.children_count; i += 2) {
                 sig.param_types.push_back(parse_type_token(nodes[child_indices[node.children_offset + i]].token));
             }
-            functions[node.token.data] = sig;
+            functions[pool.intern(namespace_prefix + std::string(pool.get(node.token.data)))] = sig;
             
             symbol_table.enter_scope();
             for (uint32_t i = 2; i < node.children_count; i += 2) {
@@ -327,27 +353,38 @@ TypeId Analyzer::check(Parser::NodeId id) {
             result = type_table.get_builtin(TypeKind::Void);
             break;
         }
-        case Parser::NodeType::Call: {
+                case Parser::NodeType::Call: {
             Parser::NodeId callee_id = child_indices[node.children_offset];
             Lexer::IdentId func_name = nodes[callee_id].token.data;
+            std::string fname_str = std::string(pool.get(func_name));
+
+            if (fname_str == "печать" || fname_str == "ввод" || fname_str == "выход" || fname_str == "паника" || fname_str == "утверждение") {
+                for (uint32_t i = 1; i < node.children_count; ++i) {
+                    check(child_indices[node.children_offset + i]);
+                }
+                if (fname_str == "ввод") result = type_table.get_builtin(TypeKind::String);
+                else result = type_table.get_builtin(TypeKind::Void);
+                break;
+            }
+
             if (!functions.count(func_name)) error(node.token, "Вызов неизвестной функции");
             
             auto& sig = functions[func_name];
             if (node.children_count - 1 != sig.param_types.size()) {
                 error(node.token, "Неверное количество аргументов");
             }
-            auto resolve_alias = [&](TypeId id) {
-                while (type_table.get_type(id).kind == TypeKind::Alias) {
-                    id = type_table.get_type(id).base_type;
-                }
-                return id;
-            };
-            
             for (uint32_t i = 1; i < node.children_count; ++i) {
                 TypeId arg_type = check(child_indices[node.children_offset + i]);
-                if (resolve_alias(arg_type) != resolve_alias(sig.param_types[i - 1])) error(node.token, "Несоответствие типа аргумента");
+                if (!types_compatible(arg_type, sig.param_types[i - 1])) error(node.token, "Несоответствие типа аргумента");
             }
             result = sig.return_type;
+            break;
+        }
+        case Parser::NodeType::Cast: {
+            TypeId target_type = parse_type_token(nodes[child_indices[node.children_offset]].token);
+            TypeId expr_type = check(child_indices[node.children_offset + 1]);
+            if (target_type == 0) error(node.token, "Неизвестный тип для приведения");
+            result = target_type;
             break;
         }
         case Parser::NodeType::Return: {
@@ -355,14 +392,7 @@ TypeId Analyzer::check(Parser::NodeId id) {
             if (node.children_count > 0) {
                 ret_type = check(child_indices[node.children_offset]);
             }
-            auto resolve_alias = [&](TypeId id) {
-                while (type_table.get_type(id).kind == TypeKind::Alias) {
-                    id = type_table.get_type(id).base_type;
-                }
-                return id;
-            };
-            
-            if (resolve_alias(ret_type) != resolve_alias(current_func_return_type)) {
+            if (!types_compatible(ret_type, current_func_return_type)) {
                 error(node.token, "Тип возвращаемого значения не совпадает с сигнатурой функции");
             }
             result = ret_type;
