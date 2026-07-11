@@ -1,0 +1,402 @@
+#include "../inc/Interpreter.hpp"
+#include <cstring>
+#include <cmath>
+#include <iostream>
+
+namespace Interpreter {
+
+// --- Environment ---
+
+void Environment::enter_scope() { scopes.push_back({}); }
+void Environment::exit_scope() { scopes.pop_back(); }
+
+void Environment::define(Lexer::IdentId name, Value val) {
+  scopes.back()[name] = val;
+}
+
+void Environment::assign(Lexer::IdentId name, Value val) {
+  for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+    if (it->count(name)) {
+      (*it)[name] = val;
+      return;
+    }
+  }
+}
+
+Value Environment::get(Lexer::IdentId name) {
+  for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+    if (it->count(name))
+      return (*it)[name];
+  }
+  return Value();
+}
+
+// --- VM ---
+
+VM::VM(const std::vector<Parser::ASTNode> &n,
+       const std::vector<Parser::NodeId> &c, Lexer::StringPool &p,
+       Memory::Arena &a)
+    : nodes(n), child_indices(c), pool(p), arena(a) {
+  env.enter_scope(); // Глобальный контекст
+}
+
+void VM::panic(const std::string &msg) {
+  std::cerr << "Ошибка времени выполнения: " << msg << std::endl;
+  std::exit(1);
+}
+
+Value VM::eval(Parser::NodeId id) {
+  if (id == Parser::InvalidNode)
+    return Value();
+  const auto &node = nodes[id];
+
+  switch (node.type) {
+  case Parser::NodeType::LiteralInt: {
+    Value v;
+    v.kind = Semantic::TypeKind::Int;
+    v.as.i64 = std::stoll(std::string(node.token.lexeme));
+    return v;
+  }
+  case Parser::NodeType::LiteralFloat: {
+    Value v;
+    v.kind = Semantic::TypeKind::Float;
+    v.as.f64 = std::stod(std::string(node.token.lexeme));
+    return v;
+  }
+  case Parser::NodeType::LiteralBool: {
+    Value v;
+    v.kind = Semantic::TypeKind::Bool;
+    v.as.b = (node.token.type == Lexer::TokenType::KwTrue);
+    return v;
+  }
+  case Parser::NodeType::LiteralString: {
+    Value v;
+    v.kind = Semantic::TypeKind::String;
+    v.as.s = pool.get(node.token.data).data();
+    return v;
+  }
+  case Parser::NodeType::Identifier: {
+    return env.get(node.token.data);
+  }
+  case Parser::NodeType::BinaryOp: {
+    Value left = eval(child_indices[node.children_offset]);
+    Value right = eval(child_indices[node.children_offset + 1]);
+    Value res;
+    res.kind = left.kind;
+
+    switch (node.token.type) {
+    case Lexer::TokenType::Plus:
+      if (left.kind == Semantic::TypeKind::Int)
+        res.as.i64 = left.as.i64 + right.as.i64;
+      else
+        res.as.f64 = left.as.f64 + right.as.f64;
+      break;
+    case Lexer::TokenType::Minus:
+      if (left.kind == Semantic::TypeKind::Int)
+        res.as.i64 = left.as.i64 - right.as.i64;
+      else
+        res.as.f64 = left.as.f64 - right.as.f64;
+      break;
+    case Lexer::TokenType::Star:
+      if (left.kind == Semantic::TypeKind::Int)
+        res.as.i64 = left.as.i64 * right.as.i64;
+      else
+        res.as.f64 = left.as.f64 * right.as.f64;
+      break;
+    case Lexer::TokenType::Slash:
+      if (right.as.i64 == 0 && right.as.f64 == 0.0)
+        panic("Деление на ноль");
+      if (left.kind == Semantic::TypeKind::Int)
+        res.as.i64 = left.as.i64 / right.as.i64;
+      else
+        res.as.f64 = left.as.f64 / right.as.f64;
+      break;
+    case Lexer::TokenType::EqualEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 == right.as.i64); // Упрощенно
+      break;
+    case Lexer::TokenType::Less:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 < right.as.i64); // Упрощенно
+      break;
+    case Lexer::TokenType::LessEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 <= right.as.i64);
+      break;
+    case Lexer::TokenType::Greater:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 > right.as.i64);
+      break;
+    case Lexer::TokenType::GreaterEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 >= right.as.i64);
+      break;
+    case Lexer::TokenType::BangEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.as.i64 != right.as.i64);
+      break;
+    default:
+      break;
+    }
+    return res;
+  }
+  case Parser::NodeType::ArrayLiteral:
+  case Parser::NodeType::StructLiteral: {
+      uint32_t count = node.type == Parser::NodeType::ArrayLiteral ? node.children_count : node.children_count - 1;
+      uint32_t offset_idx = node.type == Parser::NodeType::ArrayLiteral ? 0 : 1;
+      
+      Value v;
+      v.kind = node.type == Parser::NodeType::ArrayLiteral ? Semantic::TypeKind::Array : Semantic::TypeKind::Struct;
+      // Выделяем память в Арене
+      v.as.arr = static_cast<Value*>(arena.alloc(sizeof(Value) * count, alignof(Value)));
+      
+      for (uint32_t i = 0; i < count; ++i) {
+          v.as.arr[i] = eval(child_indices[node.children_offset + offset_idx + i]);
+      }
+      return v;
+  }
+    case Parser::NodeType::Indexing: {
+        Value arr_val = eval(child_indices[node.children_offset]);
+        Value idx_val = eval(child_indices[node.children_offset + 1]);
+        // Упрощенно: без проверки выхода за границы для MVP
+        return arr_val.as.arr[idx_val.as.i64];
+    }
+    case Parser::NodeType::MemberAccess: {
+        Value obj_val = eval(child_indices[node.children_offset]);
+        uint32_t offset = node.extra_data & 0x7FFFFFFF;
+        if (node.extra_data & 0x80000000) {
+            Value v; v.kind = Semantic::TypeKind::Array;
+            v.as.arr = obj_val.as.arr + offset;
+            return v;
+        }
+        return obj_val.as.arr[offset];
+    }
+    case Parser::NodeType::Cast: {
+        Value val = eval(child_indices[node.children_offset]);
+        Semantic::TypeId target_type = node.extra_data;
+        Value res;
+        
+        if (target_type == 3) {
+            res.kind = Semantic::TypeKind::Float;
+            if (val.kind == Semantic::TypeKind::Int) res.as.f64 = (double)val.as.i64;
+            else if (val.kind == Semantic::TypeKind::Float) res = val;
+            else if (val.kind == Semantic::TypeKind::Char) res.as.f64 = (double)val.as.i64;
+        } else if (target_type == 2) {
+            res.kind = Semantic::TypeKind::Int;
+            if (val.kind == Semantic::TypeKind::Float) res.as.i64 = (int64_t)val.as.f64;
+            else if (val.kind == Semantic::TypeKind::Int) res = val;
+            else if (val.kind == Semantic::TypeKind::Char) res.as.i64 = (int64_t)val.as.i64;
+        } else if (target_type == 5) {
+            res.kind = Semantic::TypeKind::Char;
+            if (val.kind == Semantic::TypeKind::Int) res.as.i64 = val.as.i64;
+            else if (val.kind == Semantic::TypeKind::Float) res.as.i64 = (int64_t)val.as.f64;
+            else if (val.kind == Semantic::TypeKind::Char) res = val;
+        } else {
+            res = val;
+        }
+        return res;
+    }
+    case Parser::NodeType::AssignStmt: {
+        Parser::NodeId target_id = child_indices[node.children_offset];
+        Value val = eval(child_indices[node.children_offset + 1]);
+
+        if (nodes[target_id].type == Parser::NodeType::Identifier) {
+            env.assign(nodes[target_id].token.data, val);
+        } else if (nodes[target_id].type == Parser::NodeType::Indexing) {
+            Value arr_val = eval(child_indices[nodes[target_id].children_offset]);
+            Value idx_val = eval(child_indices[nodes[target_id].children_offset + 1]);
+            arr_val.as.arr[idx_val.as.i64] = val;
+        } else if (nodes[target_id].type == Parser::NodeType::MemberAccess) {
+            Value struct_val = eval(child_indices[nodes[target_id].children_offset]);
+            uint32_t offset = nodes[target_id].extra_data;
+            struct_val.as.arr[offset] = val;
+        }
+        return val;
+    }
+        case Parser::NodeType::Call: {
+            Parser::NodeId callee_id = child_indices[node.children_offset];
+            Lexer::IdentId func_name = nodes[callee_id].token.data;
+
+        Lexer::IdentId print_id = pool.intern("печать");
+        Lexer::IdentId input_id = pool.intern("ввод");
+        Lexer::IdentId exit_id = pool.intern("выход");
+        Lexer::IdentId panic_id = pool.intern("паника");
+        Lexer::IdentId assert_id = pool.intern("утверждение");
+
+        if (func_name == print_id) {
+            if (node.children_count != 2) panic("Неверное количество аргументов");
+            Value v = eval(child_indices[node.children_offset + 1]);
+            if (v.kind == Semantic::TypeKind::Int) {
+                std::cout << v.as.i64 << std::endl;
+            } else if (v.kind == Semantic::TypeKind::Float) {
+                std::cout << v.as.f64 << std::endl;
+            } else if (v.kind == Semantic::TypeKind::Bool) {
+                std::cout << (v.as.b ? "истина" : "ложь") << std::endl;
+            } else if (v.kind == Semantic::TypeKind::Char) {
+                std::cout << (char)v.as.i64 << std::endl;
+            } else if (v.kind == Semantic::TypeKind::String) {
+                std::cout << v.as.s << std::endl;
+            }
+            return Value();
+        }
+
+        if (func_name == input_id) {
+            std::string s;
+            std::cin >> s;
+            Value v; v.kind = Semantic::TypeKind::String; char* mem = static_cast<char*>(arena.alloc(s.size() + 1, 1)); std::memcpy(mem, s.data(), s.size()); mem[s.size()] = '\0'; v.as.s = mem;
+            return v;
+        }
+
+        if (func_name == exit_id) {
+            if (node.children_count != 2) panic("Неверное количество аргументов");
+            Value v = eval(child_indices[node.children_offset + 1]);
+            std::exit(v.as.i64);
+        }
+
+        if (func_name == panic_id) {
+            if (node.children_count != 2) panic("Неверное количество аргументов");
+            Value v = eval(child_indices[node.children_offset + 1]);
+            panic(v.as.s);
+        }
+
+        if (func_name == assert_id) {
+            if (node.children_count != 2) panic("Неверное количество аргументов");
+            Value v = eval(child_indices[node.children_offset + 1]);
+            if (!v.as.b) {
+                panic("Утверждение ложно (assert failed)");
+            }
+            return Value();
+        }
+
+        if (!functions.count(func_name)) panic("Вызов неизвестной функции: " + std::string(pool.get(func_name)));
+            
+            Parser::NodeId func_node_id = functions[func_name];
+            const auto& func_node = nodes[func_node_id];
+            
+            std::vector<Value> args;
+            for (uint32_t i = 1; i < node.children_count; ++i) {
+                args.push_back(eval(child_indices[node.children_offset + i]));
+            }
+            
+            auto old_scopes = env.get_scopes();
+            std::vector<std::unordered_map<Lexer::IdentId, Value>> new_scopes;
+            new_scopes.push_back(old_scopes[0]);
+            new_scopes.push_back({});
+            env.set_scopes(new_scopes);
+            
+            for (uint32_t i = 2; i < func_node.children_count; i += 2) {
+                Lexer::IdentId arg_name = nodes[child_indices[func_node.children_offset + i + 1]].token.data;
+                env.define(arg_name, args[(i-2)/2]);
+            }
+            
+            execute(child_indices[func_node.children_offset + 1]);
+            
+            Value ret_val = return_value;
+            should_return = false;
+            return_value = Value();
+            
+            env.set_scopes(old_scopes);
+            return ret_val;
+        }
+  default:
+    return Value();
+  }
+}
+
+void VM::execute(Parser::NodeId id) {
+  if (id == Parser::InvalidNode || should_return || should_break || should_continue)
+    return;
+  const auto &node = nodes[id];
+
+  switch (node.type) {
+        case Parser::NodeType::NamespaceDecl:
+        case Parser::NodeType::Program:
+        case Parser::NodeType::Block: {
+            env.enter_scope();
+            for (uint32_t i = 0; i < node.children_count; ++i) {
+                execute(child_indices[node.children_offset + i]);
+                if (should_return || should_break || should_continue) break;
+            }
+            env.exit_scope();
+            break;
+        }
+        case Parser::NodeType::FuncDecl: {
+            functions[node.token.data] = id;
+            break;
+        }
+        case Parser::NodeType::Return: {
+            Value ret_val;
+            if (node.children_count > 0) {
+                ret_val = eval(child_indices[node.children_offset]);
+            } else {
+                ret_val = Value();
+            }
+            should_return = true;
+            return_value = ret_val;
+            break;
+        }
+        case Parser::NodeType::Break: should_break = true; break;
+        case Parser::NodeType::Continue: should_continue = true; break;
+  case Parser::NodeType::StructDecl:
+  case Parser::NodeType::TypeAlias: {
+      break;
+  }
+  case Parser::NodeType::VarDecl: {
+      Value val;
+      if (node.extra_data > 0) {
+          val.kind = Semantic::TypeKind::Array;
+          val.as.arr = static_cast<Value*>(arena.alloc(sizeof(Value) * node.extra_data, alignof(Value)));
+          for(uint32_t i = 0; i < node.extra_data; ++i) val.as.arr[i] = Value();
+      } else if (child_indices[node.children_offset] != Parser::InvalidNode) {
+          val = eval(child_indices[node.children_offset]);
+      }
+      env.define(node.token.data, val);
+      break;
+  }
+        case Parser::NodeType::ExprStmt: {
+            Parser::NodeId expr_id = child_indices[node.children_offset];
+            eval(expr_id);
+            break;
+        }
+        case Parser::NodeType::If: {
+            Value cond = eval(child_indices[node.children_offset]);
+            if (cond.as.b) {
+                execute(child_indices[node.children_offset + 1]);
+            } else if (node.children_count > 2 && child_indices[node.children_offset + 2] != Parser::InvalidNode) {
+                execute(child_indices[node.children_offset + 2]);
+            }
+            break;
+        }
+        case Parser::NodeType::While: {
+            while (true) {
+                Value cond = eval(child_indices[node.children_offset]);
+                if (!cond.as.b) break;
+                
+                execute(child_indices[node.children_offset + 1]);
+                
+                if (should_break) { should_break = false; break; }
+                if (should_continue) { should_continue = false; continue; }
+                if (should_return) break;
+            }
+            break;
+        }
+  default:
+    eval(id);
+    break;
+  }
+}
+
+int VM::run(Parser::NodeId root) {
+    execute(root); // Регистрация функций
+    
+    Lexer::IdentId main_id = pool.intern("main");
+    if (!functions.count(main_id)) panic("Точка входа 'main' не найдена");
+    
+    Parser::NodeId main_node = functions[main_id];
+    execute(child_indices[nodes[main_node].children_offset + 1]); // Выполняем тело main
+    
+    if (return_value.kind == Semantic::TypeKind::Int) return return_value.as.i64;
+    return 0;
+}
+
+} // namespace Interpreter
