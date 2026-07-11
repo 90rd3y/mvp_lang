@@ -372,8 +372,8 @@ void VM::execute(Parser::NodeId id) {
 int VM::run(Parser::NodeId root) {
     execute(root); // Регистрация функций
     
-    Lexer::IdentId main_id = pool.intern("main");
-    if (!functions.count(main_id)) panic("Точка входа 'main' не найдена");
+    Lexer::IdentId main_id = pool.intern("Начало");
+    if (!functions.count(main_id)) panic("Точка входа 'Начало' не найдена");
     
     Parser::NodeId main_node = functions[main_id];
     execute(child_indices[nodes[main_node].children_offset + 1]); // Выполняем тело main
