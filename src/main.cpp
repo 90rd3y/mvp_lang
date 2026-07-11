@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
 
   // === ФАЗА 1: Инициализация и Лексический анализ ===
   Memory::Arena
-      ast_arena; // Арена для интернирования строк и типов на этапе компиляции
+      ast_arena; // Арена для интернирования строк и типов на этапе статического анализа
   Lexer::StringPool pool(ast_arena);
 
   Lexer::Scanner scanner(source_code, pool);
