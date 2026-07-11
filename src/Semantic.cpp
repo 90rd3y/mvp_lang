@@ -71,7 +71,7 @@ Analyzer::Analyzer(std::vector<Parser::ASTNode> &n,
 
 void Analyzer::error(Lexer::Token token, const std::string &message) {
   std::cerr << token.line << ":" << token.column
-            << ": семантическая ошибка: " << message << std::endl;
+            << ": статическая ошибка: " << message << std::endl;
   std::exit(1);
 }
 
@@ -417,32 +417,41 @@ TypeId Analyzer::check_identifier(Parser::NodeId id) {
 }
 
 TypeId Analyzer::check_binary(Parser::NodeId id) {
-  const auto &node = nodes[id];
-  TypeId left = check(child_indices[node.children_offset]);
-  TypeId right = check(child_indices[node.children_offset + 1]);
+    const auto& node = nodes[id];
+    TypeId left = check(child_indices[node.children_offset]);
+    TypeId right = check(child_indices[node.children_offset + 1]);
 
-  // В нашем языке строгая типизация: типы должны совпадать
-  auto resolve_alias = [&](TypeId id) {
-      while (type_table.get_type(id).kind == TypeKind::Alias) {
-          id = type_table.get_type(id).base_type;
-      }
-      return id;
-  };
-  
-  if (resolve_alias(left) != resolve_alias(right)) {
-    error(node.token, "Несоответствие типов в бинарной операции");
-  }
+    auto resolve_alias = [&](TypeId id) {
+        while (type_table.get_type(id).kind == TypeKind::Alias) {
+            id = type_table.get_type(id).base_type;
+        }
+        return id;
+    };
 
-  // Для сравнений возвращаем bool, для арифметики — тип операндов
-  if (node.token.type == Lexer::TokenType::EqualEqual ||
-      node.token.type == Lexer::TokenType::BangEqual ||
-      node.token.type == Lexer::TokenType::Less ||
-      node.token.type == Lexer::TokenType::LessEqual ||
-      node.token.type == Lexer::TokenType::Greater ||
-      node.token.type == Lexer::TokenType::GreaterEqual) {
-    return type_table.get_builtin(TypeKind::Bool);
-  }
-  return left;
+    if (resolve_alias(left) != resolve_alias(right)) {
+        error(node.token, "Несоответствие типов в бинарной операции");
+    }
+
+    Lexer::TokenType op = node.token.type;
+    
+    // Проверка операторов отношения (<, >, <=, >=)
+    if (op == Lexer::TokenType::Less || op == Lexer::TokenType::LessEqual ||
+        op == Lexer::TokenType::Greater || op == Lexer::TokenType::GreaterEqual) {
+        
+        Semantic::TypeKind k = type_table.get_type(resolve_alias(left)).kind;
+        if (k != TypeKind::Int && k != TypeKind::Float && k != TypeKind::Char) {
+            error(node.token, "Операторы отношения (<, >, <=, >=) применимы только к числам и символам");
+        }
+        return type_table.get_builtin(TypeKind::Bool);
+    }
+
+    // Проверка операторов равенства (==, !=)
+    if (op == Lexer::TokenType::EqualEqual || op == Lexer::TokenType::BangEqual) {
+        return type_table.get_builtin(TypeKind::Bool);
+    }
+
+    // Для арифметики возвращаем тип операндов
+    return left;
 }
 
 

@@ -49,7 +49,7 @@ Lexer::Token Parser::consume(Lexer::TokenType type, const char *message) {
 
 void Parser::error(Lexer::Token token, const char *message) {
   std::cerr << "[" << token.line << ":" << token.column
-            << "] Ошибка: " << message << std::endl;
+            << "] статическая ошибка: " << message << std::endl;
   // В учебном проекте просто выходим, в реальном — синхронизируемся
   std::exit(1);
 }
