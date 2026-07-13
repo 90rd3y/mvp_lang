@@ -140,6 +140,7 @@ private:
   Token make_token(TokenType type);
   Token make_error(std::string_view message);
   Token scan_string();
+  Token scan_char();
   Token scan_number();
   Token scan_identifier();
 

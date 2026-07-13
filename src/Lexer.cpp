@@ -131,6 +131,39 @@ Token Scanner::scan_string() {
   return {TokenType::String, pool.intern(value), line, column, value};
 }
 
+Token Scanner::scan_char() {
+  if (is_at_end())
+    return make_error("Незавершенный символьный литерал");
+  
+  char c = peek();
+  if (c == '\'') {
+    advance(); // Поглотить '\''
+    return make_error("Пустой символьный литерал");
+  }
+  
+  if (c == '\\') {
+    advance(); // Поглотить '\\'
+    if (is_at_end())
+      return make_error("Незавершенный символьный литерал");
+    advance(); // Поглотить экранируемый символ (допускать только определенный набор экранируемых символов)
+  } else {
+    advance();
+    // Поддержка UTF-8
+    while (!is_at_end() && (unsigned char)peek() >= 128 && (unsigned char)peek() < 192) { // ??
+      advance();
+    }
+  }
+  
+  if (peek() != '\'') {
+    return make_error("Ожидалась закрывающая кавычка '\''");
+  }
+  advance(); // Поглотить закрывающую кавычку
+  
+  // Извлекаем значение без внешних кавычек
+  std::string_view value = source.substr(start + 1, current - start - 2);
+  return {TokenType::Char, pool.intern(value), line, column, value};
+}
+
 Token Scanner::scan_number() {
   bool is_float = false;
   while (isdigit(peek()))
@@ -262,6 +295,9 @@ std::vector<Token> Scanner::tokenize() {
         break;
       case '"':
         tokens.push_back(scan_string());
+        break;
+      case '\'':
+        tokens.push_back(scan_char());
         break;
       default:
         tokens.push_back(make_error("Неизвестный символ"));

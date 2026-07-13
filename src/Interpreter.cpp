@@ -91,6 +91,43 @@ Value VM::eval(Parser::NodeId id) {
     v.as.s = pool.get(node.token.data).data();
     return v;
   }
+  case Parser::NodeType::LiteralChar: {
+    Value v;
+    v.kind = Semantic::TypeKind::Char;
+    std::string_view lexeme = pool.get(node.token.data);
+    if (lexeme.empty()) {
+      v.as.i64 = 0;
+    } else if (lexeme[0] == '\\') {
+      if (lexeme.size() > 1) {
+        switch (lexeme[1]) {
+          case 'n': v.as.i64 = '\n'; break;
+          case 't': v.as.i64 = '\t'; break;
+          case 'r': v.as.i64 = '\r'; break;
+          case '\\': v.as.i64 = '\\'; break;
+          case '\'': v.as.i64 = '\''; break;
+          case '"': v.as.i64 = '\"'; break;
+          case '0': v.as.i64 = '\0'; break;
+          default: v.as.i64 = lexeme[1]; break;
+        }
+      } else {
+        v.as.i64 = '\\';
+      }
+    } else {
+      unsigned char b1 = lexeme[0];
+      if (b1 < 128) {
+        v.as.i64 = b1;
+      } else if (b1 < 224 && lexeme.size() >= 2) {
+        v.as.i64 = ((b1 & 0x1F) << 6) | (lexeme[1] & 0x3F);
+      } else if (b1 < 240 && lexeme.size() >= 3) {
+        v.as.i64 = ((b1 & 0x0F) << 12) | ((lexeme[1] & 0x3F) << 6) | (lexeme[2] & 0x3F);
+      } else if (b1 < 248 && lexeme.size() >= 4) {
+        v.as.i64 = ((b1 & 0x07) << 18) | ((lexeme[1] & 0x3F) << 12) | ((lexeme[2] & 0x3F) << 6) | (lexeme[3] & 0x3F);
+      } else {
+        v.as.i64 = b1;
+      }
+    }
+    return v;
+  }
   case Parser::NodeType::ArrayLiteral: {
       Value val;
       val.kind = Semantic::TypeKind::Array;
@@ -218,6 +255,18 @@ Value VM::eval(Parser::NodeId id) {
                     else if (args[0].kind == Semantic::TypeKind::Float) std::cout << args[0].as.f64 << "\n";
                     else if (args[0].kind == Semantic::TypeKind::Bool) std::cout << (args[0].as.b ? "истина" : "ложь") << "\n";
                     else if (args[0].kind == Semantic::TypeKind::String) std::cout << args[0].as.s << "\n";
+                    else if (args[0].kind == Semantic::TypeKind::Char) {
+                        int64_t cp = args[0].as.i64;
+                        if (cp < 128) {
+                            std::cout << (char)cp << "\n";
+                        } else if (cp < 2048) {
+                            std::cout << (char)(0xC0 | (cp >> 6)) << (char)(0x80 | (cp & 0x3F)) << "\n";
+                        } else if (cp < 65536) {
+                            std::cout << (char)(0xE0 | (cp >> 12)) << (char)(0x80 | ((cp >> 6) & 0x3F)) << (char)(0x80 | (cp & 0x3F)) << "\n";
+                        } else {
+                            std::cout << (char)(0xF0 | (cp >> 18)) << (char)(0x80 | ((cp >> 12) & 0x3F)) << (char)(0x80 | ((cp >> 6) & 0x3F)) << (char)(0x80 | (cp & 0x3F)) << "\n";
+                        }
+                    }
                     return Value();
                 } else if (fname_str == "ввод") {
                     std::string input_str;

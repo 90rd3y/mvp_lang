@@ -16,6 +16,7 @@ enum class NodeType {
   LiteralFloat,
   LiteralString,
   LiteralBool,
+  LiteralChar,
   Identifier,
   BinaryOp,
   UnaryOp,

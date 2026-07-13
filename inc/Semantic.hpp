@@ -112,6 +112,7 @@ private:
 
   // Вспомогательные методы проверки
   TypeId check_binary(Parser::NodeId id);
+  TypeId check_unary(Parser::NodeId id);
   TypeId check_literal(Parser::NodeId id);
   TypeId check_identifier(Parser::NodeId id);
   void check_lvalue_mutability(Parser::NodeId id, Lexer::Token token);

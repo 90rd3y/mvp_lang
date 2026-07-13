@@ -129,12 +129,18 @@ TypeId Analyzer::check(Parser::NodeId id) {
   case Parser::NodeType::LiteralString:
     result = type_table.get_builtin(TypeKind::String);
     break;
+  case Parser::NodeType::LiteralChar:
+    result = type_table.get_builtin(TypeKind::Char);
+    break;
 
   case Parser::NodeType::Identifier:
     result = check_identifier(id);
     break;
   case Parser::NodeType::BinaryOp:
     result = check_binary(id);
+    break;
+  case Parser::NodeType::UnaryOp:
+    result = check_unary(id);
     break;
   case Parser::NodeType::AssignStmt: {
       Parser::NodeId target_id = child_indices[node.children_offset];
@@ -574,6 +580,29 @@ TypeId Analyzer::check_binary(Parser::NodeId id) {
     return left;
 }
 
+TypeId Analyzer::check_unary(Parser::NodeId id) {
+    const auto& node = nodes[id];
+    Parser::NodeId operand_id = child_indices[node.children_offset];
+    TypeId operand_type = check(operand_id);
+    if (operand_type == 0) return 0;
+    
+    if (node.token.type == Lexer::TokenType::Minus) {
+        if (operand_type == type_table.get_builtin(TypeKind::Int) ||
+            operand_type == type_table.get_builtin(TypeKind::Float)) {
+            return operand_type;
+        }
+        error(node.token, "Оператор '-' применим только к числам");
+    } else if (node.token.type == Lexer::TokenType::Bang) {
+        if (operand_type == type_table.get_builtin(TypeKind::Bool)) {
+            return operand_type;
+        }
+        error(node.token, "Оператор '!' применим только к логическим значениям");
+    } else {
+        error(node.token, "Неизвестный унарный оператор");
+    }
+    return 0;
+}
+
 
 
 void Analyzer::analyze(Parser::NodeId root) { check(root); }
@@ -588,6 +617,7 @@ TypeId Analyzer::parse_type_token(Lexer::Token tok) {
         case Lexer::TokenType::KwInt: return type_table.get_builtin(TypeKind::Int);
         case Lexer::TokenType::KwFloat: return type_table.get_builtin(TypeKind::Float);
         case Lexer::TokenType::KwBool: return type_table.get_builtin(TypeKind::Bool);
+        case Lexer::TokenType::KwChar: return type_table.get_builtin(TypeKind::Char);
         case Lexer::TokenType::KwVoid: return type_table.get_builtin(TypeKind::Void);
         case Lexer::TokenType::KwString: return type_table.get_builtin(TypeKind::String);
         default: return 0;

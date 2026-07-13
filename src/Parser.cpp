@@ -84,24 +84,23 @@ bool Parser::is_type_token(size_t index) const {
         t == Lexer::TokenType::KwString) {
         return true;
     }
+    
     if (t == Lexer::TokenType::Identifier) {
-        size_t idx = index;
-        while (idx + 2 < tokens.size() && 
-               tokens[idx + 1].type == Lexer::TokenType::ColonColon && 
-               tokens[idx + 2].type == Lexer::TokenType::Identifier) {
-            idx += 2;
+        size_t next_idx = index + 1;
+        if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::LBracket) {
+            next_idx++;
+            if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::Int) {
+                next_idx++;
+            }
+            if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::RBracket) {
+                next_idx++;
+            }
         }
-        if (idx + 1 < tokens.size() && tokens[idx + 1].type == Lexer::TokenType::Identifier) {
-            return true;
-        }
-        if (idx + 4 < tokens.size() &&
-            tokens[idx + 1].type == Lexer::TokenType::LBracket &&
-            tokens[idx + 2].type == Lexer::TokenType::Int &&
-            tokens[idx + 3].type == Lexer::TokenType::RBracket &&
-            tokens[idx + 4].type == Lexer::TokenType::Identifier) {
+        if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::Identifier) {
             return true;
         }
     }
+    
     return false;
 }
 
@@ -137,6 +136,8 @@ NodeId Parser::literal(bool) {
     return create_node(NodeType::LiteralFloat, previous());
   case Lexer::TokenType::String:
     return create_node(NodeType::LiteralString, previous());
+  case Lexer::TokenType::Char:
+    return create_node(NodeType::LiteralChar, previous());
   case Lexer::TokenType::KwTrue:
   case Lexer::TokenType::KwFalse:
     return create_node(NodeType::LiteralBool, previous());
@@ -221,6 +222,7 @@ const Parser::ParseRule *Parser::get_rule(Lexer::TokenType type) {
     r[static_cast<int>(Lexer::TokenType::Int)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Float)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::String)] = {&Parser::literal, nullptr, PREC_NONE};
+    r[static_cast<int>(Lexer::TokenType::Char)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwTrue)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::KwFalse)] = {&Parser::literal, nullptr, PREC_NONE};
     r[static_cast<int>(Lexer::TokenType::Identifier)] = {&Parser::variable, nullptr, PREC_NONE};
