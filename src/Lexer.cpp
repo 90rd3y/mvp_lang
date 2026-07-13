@@ -6,7 +6,7 @@ namespace Lexer {
 // --- StringPool ---
 
 StringPool::StringPool(Memory::Arena &arena) : arena(arena) {
-  // ID 0 зарезервирован для пустой строки или ошибки
+  // ID 0 зарезервирован для пустой строки
   intern("");
 }
 
@@ -71,8 +71,6 @@ void Scanner::skip_whitespace() {
     case ' ':
     case '\r':
     case '\t':
-      advance();
-      break;
     case '\n':
       advance();
       break;
@@ -148,11 +146,12 @@ Token Scanner::scan_number() {
 
 TokenType Scanner::check_keyword(std::string_view text) {
   static const std::unordered_map<std::string_view, TokenType> keywords = {
-      {"целое", TokenType::KwInt},      {"бцелое", TokenType::KwUint},
+      {"целое", TokenType::KwInt},
       {"вещ", TokenType::KwFloat},      {"лог", TokenType::KwBool},
       {"символ", TokenType::KwChar},    {"строка", TokenType::KwString},
-      {"пусто", TokenType::KwVoid},     {"если", TokenType::KwIf},
-      {"иначе", TokenType::KwElse},     {"пока", TokenType::KwWhile},
+      {"пусто", TokenType::KwVoid},     {"пост", TokenType::KwConst},
+      {"если", TokenType::KwIf},        {"иначе", TokenType::KwElse},
+      {"пока", TokenType::KwWhile},
       {"прервать", TokenType::KwBreak}, {"продолжить", TokenType::KwContinue},
       {"вернуть", TokenType::KwReturn}, {"истина", TokenType::KwTrue},
       {"ложь", TokenType::KwFalse},     {"структура", TokenType::KwStruct},
@@ -252,10 +251,14 @@ std::vector<Token> Scanner::tokenize() {
       case '&':
         if (match('&'))
           tokens.push_back(make_token(TokenType::AmpAmp));
+        else
+          tokens.push_back(make_error("Неизвестный символ '&' (ожидалось '&&')"));
         break;
       case '|':
         if (match('|'))
           tokens.push_back(make_token(TokenType::PipePipe));
+        else
+          tokens.push_back(make_error("Неизвестный символ '|' (ожидалось '||')"));
         break;
       case '"':
         tokens.push_back(scan_string());

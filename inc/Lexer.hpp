@@ -10,7 +10,7 @@ namespace Lexer {
 
 // Типы токенов
 enum class TokenType {
-  // Литералы и идентификаторы
+  // Литералы и идентификатор
   Identifier,
   String,
   Int,
@@ -19,20 +19,23 @@ enum class TokenType {
 
   // Ключевые слова
   KwInt,
-  KwUint,
   KwFloat,
   KwBool,
   KwChar,
   KwString,
   KwVoid,
+  KwConst,
+
   KwIf,
   KwElse,
   KwWhile,
   KwBreak,
   KwContinue,
   KwReturn,
+
   KwTrue,
   KwFalse,
+
   KwStruct,
   KwType,
   KwArray,
@@ -41,32 +44,43 @@ enum class TokenType {
   KwAs,
 
   // Операторы и разделители
+  // + - * / %
   Plus,
   Minus,
   Star,
   Slash,
-  Percent, // + - * / %
+  Percent,
+
+  // = == !=
   Equal,
   EqualEqual,
-  BangEqual, // = == !=
+  BangEqual,
+
+  // < <= > >=
   Less,
   LessEqual,
   Greater,
-  GreaterEqual, // < <= > >=
+  GreaterEqual,
+
+  // && || !
   AmpAmp,
   PipePipe,
-  Bang, // && || !
+  Bang,
+
+  // . , : :: ;
   Dot,
   Comma,
   Colon,
   ColonColon,
-  Semicolon, // . , : :: ;
+  Semicolon,
+
+  // ( ) { } [ ]
   LParen,
   RParen,
   LBrace,
   RBrace,
   LBracket,
-  RBracket, // ( ) { } [ ]
+  RBracket,
 
   Eof,
   Error
@@ -77,16 +91,17 @@ using IdentId = uint32_t;
 
 struct Token {
   TokenType type;
-  IdentId data; // Индекс для строк/идентификаторов или значение (упрощенно)
+  IdentId data; // Индекс для строк/идентификаторов или значение
   int line;
   int column;
   std::string_view lexeme; // Для отладки
 };
 
-/**
- * @brief Таблица интернирования строк.
- * Хранит уникальные строки в Арене и выдает их ID.
- */
+// Таблица интернирования строк.
+// Хранит уникальные строки в Арене и выдает их ID.
+// Использует словарь и вектор при хранении для скорости извлечения:
+// Словарь - бустро получить ID, если есть.
+// Вектор - быстро извлечь строку по ID.
 class StringPool {
 public:
   StringPool(Memory::Arena &arena);
@@ -99,9 +114,7 @@ private:
   std::unordered_map<std::string_view, IdentId> lookup;
 };
 
-/**
- * @brief Сканер исходного кода.
- */
+// Сканер исходного кода.
 class Scanner {
 public:
   Scanner(std::string_view source, StringPool &pool);
@@ -110,8 +123,8 @@ public:
 private:
   std::string_view source;
   StringPool &pool;
-  size_t start = 0;
-  size_t current = 0;
+  size_t start = 0;   // начало текущего токена
+  size_t current = 0; // текущая позиция
   int line = 1;
   int column = 1;
 

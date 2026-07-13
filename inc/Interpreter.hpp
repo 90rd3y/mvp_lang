@@ -4,7 +4,6 @@
 #include "Semantic.hpp"
 #include <string>
 
-
 namespace Interpreter {
 
 // Значение в рантайме
@@ -12,7 +11,6 @@ struct Value {
   Semantic::TypeKind kind;
   union {
     int64_t i64;
-    uint64_t u64;
     double f64;
     bool b;
     const char *s; // Строки хранятся в Арене
@@ -58,6 +56,15 @@ private:
   Value return_value;
   std::unordered_map<Lexer::IdentId, Parser::NodeId> functions;
   std::string namespace_prefix = "";
+
+  struct CallFrame {
+    std::string func_name;
+    int call_line;
+  };
+  std::vector<CallFrame> call_stack;
+  int current_line = 0;
+
+  void update_line(Parser::NodeId id);
 
   Value eval(Parser::NodeId id);
   void execute(Parser::NodeId id);

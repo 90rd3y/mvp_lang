@@ -31,7 +31,7 @@ void print_ast(const std::vector<Parser::ASTNode> &nodes,
     std::cout << "Block";
     break;
   case Parser::NodeType::VarDecl:
-    std::cout << "VarDecl";
+    std::cout << "VarDecl" << (node.is_mutable ? "" : " (const)");
     break;
   case Parser::NodeType::AssignStmt:
     std::cout << "AssignStmt";

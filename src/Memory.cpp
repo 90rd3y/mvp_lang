@@ -60,7 +60,7 @@ void Arena::reset() {
 
 void Arena::panic(const char *message) {
   std::cerr << message << std::endl;
-  std::exit(1); // Аварийное завершение согласно ТЗ
+  std::exit(1);
 }
 
 } // namespace Memory

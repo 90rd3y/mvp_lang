@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -Wall -Wextra -O2 -Iinc
+CXXFLAGS = -std=c++23 -Wall -Wextra -O2 -Iinc
 
 # Директории
 SRC_DIR = src

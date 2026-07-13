@@ -9,16 +9,14 @@
 
 namespace Memory {
 
-/**
- * @brief Арена-аллокатор (Bump Allocator).
- * Выделяет память блоками (чанками) по 4 МБ.
- * Индивидуальное освобождение объектов невозможно.
- */
+// Арена-аллокатор (Bump Allocator).
+// Выделяет память блоками (чанками) по 4 МБ.
+// Индивидуальное освобождение объектов невозможно.
 class Arena {
 public:
-    // Размер чанка строго 4 МБ согласно ТЗ
+    // Размер чанка строго 4 МБ
     static constexpr size_t CHUNK_SIZE = 4 * 1024 * 1024;
-    // Выравнивание по умолчанию 8 байт (для 64-битных типов)
+    // Выравнивание по умолчанию 8 байт
     static constexpr size_t DEFAULT_ALIGNMENT = 8;
 
     Arena();
@@ -28,26 +26,19 @@ public:
     Arena(const Arena&) = delete;
     Arena& operator=(const Arena&) = delete;
 
-    /**
-     * @brief Выделяет блок памяти заданного размера и выравнивания.
-     * @param size Размер в байтах.
-     * @param alignment Выравнивание (должно быть степенью двойки).
-     * @return Указатель на выделенную память.
-     */
+    // Выделяет блок памяти заданного размера и выравнивания.
+    // size - размер в байтах
+    // alignment - выравнивание (должно быть степенью двойки)
     void* alloc(size_t size, size_t alignment = DEFAULT_ALIGNMENT);
 
-    /**
-     * @brief Вспомогательный метод для размещения объекта типа T в арене.
-     */
+    // Вспомогательный метод для конструирования объекта типа T в арене.
     template<typename T, typename... Args>
     T* construct(Args&&... args) {
         void* mem = alloc(sizeof(T), alignof(T));
         return new (mem) T(std::forward<Args>(args)...);
     }
 
-    /**
-     * @brief Сброс всей памяти (освобождение всех чанков).
-     */
+    // Сброс всей памяти (освобождение всех чанков).
     void reset();
 
 private:

@@ -50,6 +50,7 @@ struct ASTNode {
   uint32_t children_offset; // Индекс в массиве child_indices
   uint32_t children_count;
   uint32_t extra_data = 0; // Сюда будем писать размер массива
+  bool is_mutable = true;
 };
 
 class Parser {
@@ -78,16 +79,18 @@ private:
   bool match(Lexer::TokenType type);
   Lexer::Token consume(Lexer::TokenType type, const char *message);
   void error(Lexer::Token token, const char *message);
+  Lexer::Token parse_type_token();
+  bool is_type_token(size_t index) const;
 
   // Рекурсивный спуск (Инструкции и объявления)
   NodeId declaration();
-  NodeId var_declaration();
+  NodeId var_declaration(bool is_mutable = true);
   NodeId func_declaration();
   NodeId struct_declaration();
   NodeId type_alias();
   NodeId namespace_declaration();
   NodeId statement();
-  NodeId assign_statement();
+
   NodeId if_statement();
   NodeId while_statement();
   NodeId block();

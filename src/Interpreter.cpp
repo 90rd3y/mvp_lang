@@ -40,14 +40,30 @@ VM::VM(const std::vector<Parser::ASTNode> &n,
   env.enter_scope(); // Глобальный контекст
 }
 
+void VM::update_line(Parser::NodeId id) {
+  if (id != Parser::InvalidNode && id < nodes.size() && nodes[id].token.line > 0) {
+    current_line = nodes[id].token.line;
+    if (!call_stack.empty()) {
+      call_stack.back().call_line = current_line;
+    }
+  }
+}
+
 void VM::panic(const std::string &msg) {
-  std::cerr << "Ошибка времени выполнения: " << msg << std::endl;
+  std::cerr << "Ошибка времени выполнения (строка " << current_line << "): " << msg << std::endl;
+  if (!call_stack.empty()) {
+    std::cerr << "Стек вызовов:" << std::endl;
+    for (const auto &frame : call_stack) {
+      std::cerr << "  в функции " << frame.func_name << " (строка " << frame.call_line << ")" << std::endl;
+    }
+  }
   std::exit(1);
 }
 
 Value VM::eval(Parser::NodeId id) {
   if (id == Parser::InvalidNode)
     return Value();
+  update_line(id);
   const auto &node = nodes[id];
 
   switch (node.type) {
@@ -226,6 +242,9 @@ Value VM::eval(Parser::NodeId id) {
 
             Parser::NodeId func_node_id = functions[func_name];
             const auto& func_node = nodes[func_node_id];
+            if (child_indices[func_node.children_offset + 1] == Parser::InvalidNode) {
+                panic("Вызов функции без определения (только прототип): " + fname_str);
+            }
 
             std::vector<Value> args;
             for (uint32_t i = 1; i < node.children_count; ++i) {
@@ -243,7 +262,9 @@ Value VM::eval(Parser::NodeId id) {
                 env.define(arg_name, args[(i-2)/2]);
             }
 
+            call_stack.push_back({fname_str, func_node.token.line});
             execute(child_indices[func_node.children_offset + 1]);
+            if (!call_stack.empty()) call_stack.pop_back();
 
             Value ret_val = return_value;
             should_return = false;
@@ -280,6 +301,7 @@ Value VM::eval(Parser::NodeId id) {
 void VM::execute(Parser::NodeId id) {
   if (id == Parser::InvalidNode || should_return || should_break || should_continue)
     return;
+  update_line(id);
   const auto &node = nodes[id];
 
   switch (node.type) {
@@ -304,7 +326,9 @@ void VM::execute(Parser::NodeId id) {
         }
         case Parser::NodeType::FuncDecl: {
             Lexer::IdentId name = pool.intern(namespace_prefix + std::string(pool.get(node.token.data)));
-            functions[name] = id;
+            if (child_indices[node.children_offset + 1] != Parser::InvalidNode || !functions.count(name)) {
+                functions[name] = id;
+            }
             break;
         }
         case Parser::NodeType::Return: {
@@ -376,7 +400,9 @@ int VM::run(Parser::NodeId root) {
     if (!functions.count(main_id)) panic("Точка входа 'Начало' не найдена");
     
     Parser::NodeId main_node = functions[main_id];
+    call_stack.push_back({"Начало", nodes[main_node].token.line});
     execute(child_indices[nodes[main_node].children_offset + 1]); // Выполняем тело main
+    if (!call_stack.empty()) call_stack.pop_back();
     
     if (return_value.kind == Semantic::TypeKind::Int) return return_value.as.i64;
     return 0;

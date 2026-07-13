@@ -13,3 +13,5 @@ myi
 .vscode/
 .idea/
 *.swparchive/patch_backups/
+
+.clinerules
