@@ -87,7 +87,8 @@ bool Analyzer::is_allowed_array_base_type(TypeId id) {
     TypeKind k = type_table.get_type(resolved).kind;
     return k == TypeKind::Int || 
            k == TypeKind::Float || k == TypeKind::Bool || 
-           k == TypeKind::Char || k == TypeKind::String;
+           k == TypeKind::Char || k == TypeKind::String ||
+           k == TypeKind::Struct;
 }
 
 bool Analyzer::is_castable_type(TypeId id) {

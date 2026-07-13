@@ -87,6 +87,17 @@ bool Parser::is_type_token(size_t index) const {
     
     if (t == Lexer::TokenType::Identifier) {
         size_t next_idx = index + 1;
+        
+        // Поддержка пространств имен (std::Точка)
+        while (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::ColonColon) {
+            next_idx++;
+            if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::Identifier) {
+                next_idx++;
+            } else {
+                return false;
+            }
+        }
+
         if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::LBracket) {
             next_idx++;
             if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::Int) {
@@ -94,6 +105,8 @@ bool Parser::is_type_token(size_t index) const {
             }
             if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::RBracket) {
                 next_idx++;
+            } else {
+                return false;
             }
         }
         if (next_idx < tokens.size() && tokens[next_idx].type == Lexer::TokenType::Identifier) {
