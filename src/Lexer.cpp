@@ -119,9 +119,15 @@ Token Scanner::make_token(TokenType type) {
 
 Token Scanner::scan_string() {
   while (peek() != '"' && !is_at_end()) {
-    if (peek() == '\\')
-      advance(); // Экранирование
-    advance();
+    if (peek() == '\\') {
+      advance(); // Поглотить '\'
+      if (is_at_end())
+        return make_error("Незавершенная строка");
+      if (!scan_escape())
+        return make_error("Недопустимая экранирующая последовательность в строке");
+    } else {
+      advance();
+    }
   }
   if (is_at_end())
     return make_error("Незавершенная строка");
@@ -130,6 +136,7 @@ Token Scanner::scan_string() {
   std::string_view value = source.substr(start + 1, current - start - 2);
   return {TokenType::String, pool.intern(value), line, column, value};
 }
+
 
 Token Scanner::scan_char() {
   if (is_at_end())
@@ -145,7 +152,8 @@ Token Scanner::scan_char() {
     advance(); // Поглотить '\\'
     if (is_at_end())
       return make_error("Незавершенный символьный литерал");
-    advance(); // Поглотить экранируемый символ (допускать только определенный набор экранируемых символов)
+    if (!scan_escape())
+      return make_error("Недопустимая экранирующая последовательность в символьном литерале");
   } else {
     advance();
     // Поддержка UTF-8
@@ -162,6 +170,31 @@ Token Scanner::scan_char() {
   // Извлекаем значение без внешних кавычек
   std::string_view value = source.substr(start + 1, current - start - 2);
   return {TokenType::Char, pool.intern(value), line, column, value};
+}
+
+// Допустимый набор экранирующих последовательностей:
+// \н -> перевод строки, \п -> табуляция, \0 -> нулевой байт,
+// \\ -> обратный слэш, \' -> одинарная кавычка, \" -> двойная кавычка.
+// На момент вызова символ '\' уже поглощен. Функция поглощает ровно один
+// экранируемый символ (для \н и \п — оба байта его UTF-8 кодировки), если
+// он допустим, и возвращает true. Если символ недопустим, ничего не
+// поглощает и возвращает false.
+bool Scanner::scan_escape() {
+  unsigned char c = static_cast<unsigned char>(peek());
+  if (c == '0' || c == '\\' || c == '\'' || c == '"') {
+    advance();
+    return true;
+  }
+  // 'н' (U+043D) в UTF-8: 0xD0 0xBD; 'п' (U+043F) в UTF-8: 0xD0 0xBF
+  if (c == 0xD0) {
+    unsigned char c2 = static_cast<unsigned char>(peek_next());
+    if (c2 == 0xBD || c2 == 0xBF) {
+      advance();
+      advance();
+      return true;
+    }
+  }
+  return false;
 }
 
 Token Scanner::scan_number() {
@@ -188,7 +221,7 @@ TokenType Scanner::check_keyword(std::string_view text) {
       {"прервать", TokenType::KwBreak}, {"продолжить", TokenType::KwContinue},
       {"вернуть", TokenType::KwReturn}, {"истина", TokenType::KwTrue},
       {"ложь", TokenType::KwFalse},     {"структура", TokenType::KwStruct},
-      {"тип", TokenType::KwType},       {"массив", TokenType::KwArray},
+      {"тип", TokenType::KwType},
       {"функция", TokenType::KwFunc},   {"пространство", TokenType::KwNamespace},
       {"как", TokenType::KwAs}};
   auto it = keywords.find(text);

@@ -98,16 +98,25 @@ Value VM::eval(Parser::NodeId id) {
     if (lexeme.empty()) {
       v.as.i64 = 0;
     } else if (lexeme[0] == '\\') {
+      // Допустимый набор экранирующих последовательностей (см. Lexer::Scanner::scan_escape):
+      // \н -> '\n', \п -> '\t', \0 -> '\0', \\ -> '\\', \' -> '\'', \" -> '"'.
       if (lexeme.size() > 1) {
-        switch (lexeme[1]) {
-          case 'n': v.as.i64 = '\n'; break;
-          case 't': v.as.i64 = '\t'; break;
-          case 'r': v.as.i64 = '\r'; break;
-          case '\\': v.as.i64 = '\\'; break;
-          case '\'': v.as.i64 = '\''; break;
-          case '"': v.as.i64 = '\"'; break;
-          case '0': v.as.i64 = '\0'; break;
-          default: v.as.i64 = lexeme[1]; break;
+        unsigned char e1 = static_cast<unsigned char>(lexeme[1]);
+        if (e1 == '\\') {
+          v.as.i64 = '\\';
+        } else if (e1 == '\'') {
+          v.as.i64 = '\'';
+        } else if (e1 == '"') {
+          v.as.i64 = '\"';
+        } else if (e1 == '0') {
+          v.as.i64 = '\0';
+        } else if (e1 == 0xD0 && lexeme.size() > 2) {
+          unsigned char e2 = static_cast<unsigned char>(lexeme[2]);
+          if (e2 == 0xBD) v.as.i64 = '\n';      // \н
+          else if (e2 == 0xBF) v.as.i64 = '\t'; // \п
+          else v.as.i64 = e1;
+        } else {
+          v.as.i64 = e1;
         }
       } else {
         v.as.i64 = '\\';

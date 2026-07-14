@@ -38,7 +38,6 @@ enum class TokenType {
 
   KwStruct,
   KwType,
-  KwArray,
   KwFunc,
   KwNamespace,
   KwAs,
@@ -143,6 +142,11 @@ private:
   Token scan_char();
   Token scan_number();
   Token scan_identifier();
+  // Поглощает экранирующую последовательность сразу после '\' (которая уже
+  // потреблена вызывающим кодом). Допустимый набор: \н \п \0 \\ \' \".
+  // Возвращает false, если последовательность недопустима (байты при этом
+  // не поглощаются, кроме уже считанного '\').
+  bool scan_escape();
 
   static TokenType check_keyword(std::string_view text);
 };
