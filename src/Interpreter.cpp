@@ -311,6 +311,9 @@ Value VM::eval(Parser::NodeId id) {
                 env.define(arg_name, args[(i-2)/2]);
             }
 
+            if (call_stack.size() > 1000) {
+                panic("Превышен лимит глубины рекурсии (Stack Overflow)");
+            }
             call_stack.push_back({fname_str, func_node.token.line});
             execute(child_indices[func_node.children_offset + 1]);
             if (!call_stack.empty()) call_stack.pop_back();

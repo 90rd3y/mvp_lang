@@ -17,7 +17,7 @@ struct Value {
     Value* arr; // Для массивов
   } as;
 
-  Value() : kind(Semantic::TypeKind::Void) {}
+  Value() : kind(Semantic::TypeKind::Void) { as.i64 = 0; }
 };
 
 class Environment {

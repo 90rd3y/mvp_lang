@@ -1,33 +1,61 @@
 CXX = g++
-CXXFLAGS = -std=c++23 -Wall -Wextra -O2 -Iinc
+OPTFLAGS ?= -O2
+CXXFLAGS = -std=c++23 -Wall -Wextra $(OPTFLAGS) -Iinc
 
-# Директории
 SRC_DIR = src
 INC_DIR = inc
 OBJ_DIR = obj
+TEST_DIR = tests
+TEST_BIN_DIR = $(OBJ_DIR)/tests
 
-# Исходники и объекты
-SOURCES = $(wildcard $(SRC_DIR)/*.cpp)
-OBJECTS = $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SOURCES))
+# Исходники и объекты (без main.cpp)
+LIB_SOURCES = $(filter-out $(SRC_DIR)/main.cpp, $(wildcard $(SRC_DIR)/*.cpp))
+LIB_OBJECTS = $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 
-# Имя исполняемого файла (согласно ТЗ)
+MAIN_OBJ = $(OBJ_DIR)/main.o
 EXEC = myi
+
+# Тесты (компилируем все файлы в tests/*.cpp)
+TEST_SOURCES = $(wildcard $(TEST_DIR)/*.cpp)
+TEST_BINS = $(patsubst $(TEST_DIR)/%.cpp, $(TEST_BIN_DIR)/%, $(TEST_SOURCES))
 
 all: $(EXEC)
 
-# Линковка
-$(EXEC): $(OBJECTS)
+asan:
+	$(MAKE) clean
+	$(MAKE) all OPTFLAGS="-O1 -g -fsanitize=address -fno-omit-frame-pointer"
+
+test: all $(TEST_BINS)
+	@echo "=== Запуск C++ тестов ==="
+	@export ASAN_OPTIONS=exitcode=88:detect_leaks=1 && \
+	for t in $(TEST_BINS); do ./$$t || exit 1; done
+	@echo "=== Запуск скриптовых тестов ==="
+	./run_tests.sh
+
+test-asan:
+	$(MAKE) clean
+	$(MAKE) test OPTFLAGS="-O1 -g -fsanitize=address -fno-omit-frame-pointer"
+
+# Линковка основного интерпретатора
+$(EXEC): $(LIB_OBJECTS) $(MAIN_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^
+
+# Компиляция тестовых бинарников
+$(TEST_BIN_DIR)/%: $(TEST_DIR)/%.cpp $(LIB_OBJECTS) | $(TEST_BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(LIB_OBJECTS)
 
 # Компиляция объектных файлов
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Создание папки для объектов
+# Создание папок
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
+
+$(TEST_BIN_DIR):
+	mkdir -p $(TEST_BIN_DIR)
 
 clean:
 	rm -rf $(OBJ_DIR) $(EXEC)
 
-.PHONY: all clean
+.PHONY: all clean asan test test-asan
