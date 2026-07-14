@@ -1,6 +1,9 @@
 CXX = g++
 OPTFLAGS ?= -O2
-CXXFLAGS = -std=c++23 -Wall -Wextra $(OPTFLAGS) -Iinc
+# -MMD -MP: генерируют .d файлы с зависимостями от заголовков, чтобы make пересобирал
+# .o при изменении .hpp, а не только .cpp (без этого правка заголовка молча оставляет
+# другие .o с устаревшим ABI/размером структур до следующего `make clean`).
+CXXFLAGS = -std=c++23 -Wall -Wextra $(OPTFLAGS) -Iinc -MMD -MP
 
 SRC_DIR = src
 INC_DIR = inc
@@ -59,3 +62,5 @@ clean:
 	rm -rf $(OBJ_DIR) $(EXEC)
 
 .PHONY: all clean asan test test-asan
+
+-include $(LIB_OBJECTS:.o=.d) $(MAIN_OBJ:.o=.d)

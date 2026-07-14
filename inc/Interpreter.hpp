@@ -9,6 +9,12 @@ namespace Interpreter {
 // Значение в рантайме
 struct Value {
   Semantic::TypeKind kind;
+  // Число элементов для Array (и число полей для Struct). Заполняется в месте
+  // создания значения (ArrayLiteral/StructLiteral) и далее просто копируется
+  // вместе со значением (как часть "толстого указателя"), поэтому не требует
+  // отдельного сопровождения при передаче в функции/присваивании. Используется
+  // для проверки границ индекса (§9) и поэлементного сравнения ==/!= (§5.1).
+  uint32_t count = 0;
   union {
     int64_t i64;
     double f64;
@@ -71,6 +77,9 @@ private:
 
   // Встроенные функции
   void builtin_print(const std::vector<Value> &args);
+
+  bool values_equal(const Value &a, const Value &b);
+  void check_index_bounds(const Value &arr_val, const Value &idx_val);
 
   void panic(const std::string &msg);
 };

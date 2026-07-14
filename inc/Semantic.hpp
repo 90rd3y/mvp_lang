@@ -1,8 +1,10 @@
 #pragma once
 
 #include "Parser.hpp"
+#include <map>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Semantic {
@@ -102,6 +104,12 @@ private:
   };
   std::unordered_map<Lexer::IdentId, FuncSignature> functions;
 
+  // Кэш массивных типов: (базовый тип с раскрученными алиасами, размер) -> TypeId.
+  // Без него каждое упоминание "T[N]" регистрировало бы новый TypeId, и структурно
+  // идентичные массивы считались бы разными типами при простом сравнении TypeId==TypeId
+  // (см. §4 SEMANTICS.md).
+  std::map<std::pair<TypeId, uint32_t>, TypeId> array_type_cache;
+
   // Вспомогательные данные для анализа
   TypeId current_func_return_type = 0;
   int loop_depth = 0;
@@ -122,6 +130,10 @@ private:
   bool is_allowed_array_base_type(TypeId id);
   bool is_castable_type(TypeId id);
   bool all_paths_return(Parser::NodeId id);
+  bool contains_own_break(Parser::NodeId id);
+
+  TypeId canonical_array_type(TypeId base_type, uint32_t size);
+  TypeId wrap_array_if_needed(TypeId base_type, uint32_t array_size, Lexer::Token err_tok);
 
   void error(Lexer::Token token, const std::string &message);
 };

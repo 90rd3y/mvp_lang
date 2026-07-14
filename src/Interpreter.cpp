@@ -60,6 +60,43 @@ void VM::panic(const std::string &msg) {
   std::exit(1);
 }
 
+// Глубокое (по значению) сравнение. Для Array/Struct обход рекурсивный: элементы/поля
+// сами являются полноценными Value со своим kind/count, поэтому вложенность массивов
+// в структуры и структур в массивы поддерживается без специального кода (см. §9, §10
+// TYPE_SYSTEM.md). Статический анализ уже гарантирует, что a.kind == b.kind для любого
+// достижимого сюда вызова (см. check_binary в Semantic.cpp), поэтому явно на это не
+// проверяем.
+bool VM::values_equal(const Value &a, const Value &b) {
+  switch (a.kind) {
+  case Semantic::TypeKind::Int:
+  case Semantic::TypeKind::Char:
+    return a.as.i64 == b.as.i64;
+  case Semantic::TypeKind::Float:
+    return a.as.f64 == b.as.f64;
+  case Semantic::TypeKind::Bool:
+    return a.as.b == b.as.b;
+  case Semantic::TypeKind::String:
+    return std::strcmp(a.as.s, b.as.s) == 0;
+  case Semantic::TypeKind::Array:
+  case Semantic::TypeKind::Struct: {
+    if (a.count != b.count) return false;
+    for (uint32_t i = 0; i < a.count; ++i) {
+      if (!values_equal(a.as.arr[i], b.as.arr[i])) return false;
+    }
+    return true;
+  }
+  default:
+    return true; // Void и т.п. — сравнивать нечего.
+  }
+}
+
+void VM::check_index_bounds(const Value &arr_val, const Value &idx_val) {
+  if (idx_val.as.i64 < 0 || static_cast<uint64_t>(idx_val.as.i64) >= arr_val.count) {
+    panic("Индекс " + std::to_string(idx_val.as.i64) + " выходит за границы массива (размер " +
+          std::to_string(arr_val.count) + ")");
+  }
+}
+
 Value VM::eval(Parser::NodeId id) {
   if (id == Parser::InvalidNode)
     return Value();
@@ -140,6 +177,7 @@ Value VM::eval(Parser::NodeId id) {
   case Parser::NodeType::ArrayLiteral: {
       Value val;
       val.kind = Semantic::TypeKind::Array;
+      val.count = node.children_count;
       val.as.arr = static_cast<Value*>(arena.alloc(sizeof(Value) * node.children_count, alignof(Value)));
       for (uint32_t i = 0; i < node.children_count; ++i) {
           val.as.arr[i] = eval(child_indices[node.children_offset + i]);
@@ -150,6 +188,7 @@ Value VM::eval(Parser::NodeId id) {
       Value val;
       val.kind = Semantic::TypeKind::Struct;
       uint32_t field_count = node.children_count - 1;
+      val.count = field_count;
       val.as.arr = static_cast<Value*>(arena.alloc(sizeof(Value) * field_count, alignof(Value)));
       for (uint32_t i = 0; i < field_count; ++i) {
           val.as.arr[i] = eval(child_indices[node.children_offset + 1 + i]);
@@ -192,39 +231,64 @@ Value VM::eval(Parser::NodeId id) {
       else
         res.as.f64 = left.as.f64 / right.as.f64;
       break;
+    case Lexer::TokenType::Percent:
+      if (right.as.i64 == 0)
+        panic("Деление на ноль");
+      res.as.i64 = left.as.i64 % right.as.i64;
+      break;
     case Lexer::TokenType::EqualEqual:
       res.kind = Semantic::TypeKind::Bool;
-      res.as.b = (left.as.i64 == right.as.i64); // Упрощенно
-      break;
-    case Lexer::TokenType::Less:
-      res.kind = Semantic::TypeKind::Bool;
-      res.as.b = (left.as.i64 < right.as.i64); // Упрощенно
-      break;
-    case Lexer::TokenType::LessEqual:
-      res.kind = Semantic::TypeKind::Bool;
-      res.as.b = (left.as.i64 <= right.as.i64);
-      break;
-    case Lexer::TokenType::Greater:
-      res.kind = Semantic::TypeKind::Bool;
-      res.as.b = (left.as.i64 > right.as.i64);
-      break;
-    case Lexer::TokenType::GreaterEqual:
-      res.kind = Semantic::TypeKind::Bool;
-      res.as.b = (left.as.i64 >= right.as.i64);
+      res.as.b = values_equal(left, right);
       break;
     case Lexer::TokenType::BangEqual:
       res.kind = Semantic::TypeKind::Bool;
-      res.as.b = (left.as.i64 != right.as.i64);
+      res.as.b = !values_equal(left, right);
+      break;
+    // Статический анализ допускает <, <=, >, >= только между целое/целое и вещ/вещ
+    // (см. check_binary в Semantic.cpp), поэтому здесь достаточно разветвления по
+    // left.kind: сравнение через .as.i64 для вещ давало неверный результат для двух
+    // отрицательных чисел (побитовая интерпретация double как int64 инвертирует
+    // порядок при отрицательных значениях, см. §5.1 SEMANTICS.md).
+    case Lexer::TokenType::Less:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.kind == Semantic::TypeKind::Int) ? (left.as.i64 < right.as.i64) : (left.as.f64 < right.as.f64);
+      break;
+    case Lexer::TokenType::LessEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.kind == Semantic::TypeKind::Int) ? (left.as.i64 <= right.as.i64) : (left.as.f64 <= right.as.f64);
+      break;
+    case Lexer::TokenType::Greater:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.kind == Semantic::TypeKind::Int) ? (left.as.i64 > right.as.i64) : (left.as.f64 > right.as.f64);
+      break;
+    case Lexer::TokenType::GreaterEqual:
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = (left.kind == Semantic::TypeKind::Int) ? (left.as.i64 >= right.as.i64) : (left.as.f64 >= right.as.f64);
       break;
     default:
       break;
     }
     return res;
   }
+  case Parser::NodeType::UnaryOp: {
+    // Semantic::check_unary статически гарантирует "-" только для Int/Float и "!"
+    // только для Bool, поэтому здесь достаточно различать их по токену оператора.
+    Value operand = eval(child_indices[node.children_offset]);
+    Value res;
+    if (node.token.type == Lexer::TokenType::Minus) {
+      res.kind = operand.kind;
+      if (operand.kind == Semantic::TypeKind::Int) res.as.i64 = -operand.as.i64;
+      else res.as.f64 = -operand.as.f64;
+    } else if (node.token.type == Lexer::TokenType::Bang) {
+      res.kind = Semantic::TypeKind::Bool;
+      res.as.b = !operand.as.b;
+    }
+    return res;
+  }
     case Parser::NodeType::Indexing: {
         Value arr_val = eval(child_indices[node.children_offset]);
         Value idx_val = eval(child_indices[node.children_offset + 1]);
-        // Упрощенно: без проверки выхода за границы для MVP
+        check_index_bounds(arr_val, idx_val);
         return arr_val.as.arr[idx_val.as.i64];
     }
     case Parser::NodeType::MemberAccess: {
@@ -241,6 +305,7 @@ Value VM::eval(Parser::NodeId id) {
         } else if (nodes[target_id].type == Parser::NodeType::Indexing) {
             Value arr_val = eval(child_indices[nodes[target_id].children_offset]);
             Value idx_val = eval(child_indices[nodes[target_id].children_offset + 1]);
+            check_index_bounds(arr_val, idx_val);
             arr_val.as.arr[idx_val.as.i64] = val;
         } else if (nodes[target_id].type == Parser::NodeType::MemberAccess) {
             Value obj_val = eval(child_indices[nodes[target_id].children_offset]);
@@ -331,6 +396,11 @@ Value VM::eval(Parser::NodeId id) {
             should_return = false;
             return_value = Value();
 
+            // Глобальная область (индекс 0) — общая для всех вызовов, но env.set_scopes
+            // выше подменил её на копию. Если тело функции изменило глобальную переменную,
+            // перед восстановлением стека вызывающего кода нужно перенести эту копию
+            // обратно, иначе изменение потерялось бы сразу после return (см. §3 SEMANTICS.md).
+            old_scopes[0] = env.get_scopes()[0];
             env.set_scopes(old_scopes);
             return ret_val;
         }
@@ -342,13 +412,21 @@ Value VM::eval(Parser::NodeId id) {
         if (target_type_tok == Lexer::TokenType::KwInt) {
             res.kind = Semantic::TypeKind::Int;
             if (expr_val.kind == Semantic::TypeKind::Float) res.as.i64 = static_cast<int64_t>(expr_val.as.f64);
-            else if (expr_val.kind == Semantic::TypeKind::Int) res.as.i64 = expr_val.as.i64;
-            else res.as.i64 = 0;
+            else if (expr_val.kind == Semantic::TypeKind::Bool) res.as.i64 = expr_val.as.b ? 1 : 0;
+            else res.as.i64 = expr_val.as.i64;
         } else if (target_type_tok == Lexer::TokenType::KwFloat) {
             res.kind = Semantic::TypeKind::Float;
             if (expr_val.kind == Semantic::TypeKind::Int) res.as.f64 = static_cast<double>(expr_val.as.i64);
-            else if (expr_val.kind == Semantic::TypeKind::Float) res.as.f64 = expr_val.as.f64;
-            else res.as.f64 = 0.0;
+            else if (expr_val.kind == Semantic::TypeKind::Bool) res.as.f64 = expr_val.as.b ? 1.0 : 0.0;
+            else res.as.f64 = expr_val.as.f64;
+        } else if (target_type_tok == Lexer::TokenType::KwBool) {
+            // is_castable_type допускает как<лог>(...) только от целое/вещ/лог (см. §8
+            // SEMANTICS.md); ранее эта ветка вообще отсутствовала и приведение к лог
+            // тихо становилось no-op (результат оставался исходным значением as-is).
+            res.kind = Semantic::TypeKind::Bool;
+            if (expr_val.kind == Semantic::TypeKind::Int) res.as.b = (expr_val.as.i64 != 0);
+            else if (expr_val.kind == Semantic::TypeKind::Float) res.as.b = (expr_val.as.f64 != 0.0);
+            else res.as.b = expr_val.as.b;
         } else {
             res = expr_val;
         }
@@ -366,7 +444,17 @@ void VM::execute(Parser::NodeId id) {
   const auto &node = nodes[id];
 
   switch (node.type) {
-        case Parser::NodeType::Program:
+        case Parser::NodeType::Program: {
+            // В отличие от Block, Program НЕ открывает собственную область видимости:
+            // глобальная область уже создана один раз в конструкторе VM и должна
+            // жить до конца программы, иначе объявленные здесь переменные исчезают
+            // до старта "Начало" (см. §3 SEMANTICS.md).
+            for (uint32_t i = 0; i < node.children_count; ++i) {
+                execute(child_indices[node.children_offset + i]);
+                if (should_return || should_break || should_continue) break;
+            }
+            break;
+        }
         case Parser::NodeType::Block: {
             env.enter_scope();
             for (uint32_t i = 0; i < node.children_count; ++i) {

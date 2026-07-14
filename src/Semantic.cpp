@@ -151,8 +151,8 @@ TypeId Analyzer::check(Parser::NodeId id) {
       
       TypeId target_type = check(target_id);
       TypeId val_type = check(val_id);
-      
-      if (resolve_alias(target_type) != resolve_alias(val_type)) error(node.token, "Несоответствие типов при присваивании");
+
+      if (!types_compatible(target_type, val_type)) error(node.token, "Несоответствие типов при присваивании");
       result = type_table.get_builtin(TypeKind::Void);
       break;
   }
@@ -165,14 +165,10 @@ TypeId Analyzer::check(Parser::NodeId id) {
       TypeId base_type = parse_type_token(nodes[type_node_id].token);
       if (base_type == type_table.get_builtin(TypeKind::Void)) error(nodes[type_node_id].token, "Переменная не может иметь тип 'пусто' (void)");
       TypeId final_type = base_type;
-      
-      if (node.extra_data > 0) { 
-          // Это массив: проверяем, что базовый тип допустим (только примитив или строка)
-          if (!is_allowed_array_base_type(base_type)) {
-              error(nodes[type_node_id].token, "Базовым типом массива может быть только примитив или строка");
-          }
-          // Регистрируем новый тип массива. Размер (число элементов) уже лежит в extra_data.
-          final_type = type_table.register_type({TypeKind::Array, 0, node.extra_data, base_type});
+
+      if (node.extra_data > 0) {
+          // Это массив: размер (число элементов) уже лежит в extra_data.
+          final_type = wrap_array_if_needed(base_type, node.extra_data, nodes[type_node_id].token);
       } else {
           // Это не массив. Проверяем, не является ли тип структурой.
           TypeId check_type = resolve_alias(final_type);
@@ -195,9 +191,11 @@ TypeId Analyzer::check(Parser::NodeId id) {
       break;
   }
   case Parser::NodeType::TypeAlias: {
-      TypeId base = parse_type_token(nodes[child_indices[node.children_offset]].token);
-      if (base == type_table.get_builtin(TypeKind::Void)) error(nodes[child_indices[node.children_offset]].token, "Нельзя создать псевдоним для типа 'пусто' (void)");
-      type_table.register_type({TypeKind::Alias, node.token.data, 0, base});
+      Parser::NodeId base_type_node = child_indices[node.children_offset];
+      TypeId base = parse_type_token(nodes[base_type_node].token);
+      if (base == type_table.get_builtin(TypeKind::Void)) error(nodes[base_type_node].token, "Нельзя создать псевдоним для типа 'пусто' (void)");
+      TypeId aliased_type = wrap_array_if_needed(base, nodes[base_type_node].extra_data, nodes[base_type_node].token);
+      type_table.register_type({TypeKind::Alias, node.token.data, 0, aliased_type});
       result = type_table.get_builtin(TypeKind::Void);
       break;
   }
@@ -205,13 +203,25 @@ TypeId Analyzer::check(Parser::NodeId id) {
       TypeId struct_id = type_table.register_type({TypeKind::Struct, node.token.data, 0, 0});
       uint32_t offset = 0;
       for (uint32_t i = 0; i < node.children_count; i += 2) {
-          TypeId field_type = parse_type_token(nodes[child_indices[node.children_offset + i]].token);
-          if (field_type == type_table.get_builtin(TypeKind::Void)) error(nodes[child_indices[node.children_offset + i]].token, "Поле структуры не может иметь тип 'пусто'");
+          Parser::NodeId field_type_node = child_indices[node.children_offset + i];
+          TypeId field_type = parse_type_token(nodes[field_type_node].token);
+          if (field_type == type_table.get_builtin(TypeKind::Void)) error(nodes[field_type_node].token, "Поле структуры не может иметь тип 'пусто'");
           Lexer::IdentId field_name = nodes[child_indices[node.children_offset + i + 1]].token.data;
-          TypeId resolved_field_type = resolve_alias(field_type);
-          if (resolved_field_type == struct_id) error(nodes[child_indices[node.children_offset + i]].token, "Рекурсивное объявление структуры");
-          
-          struct_fields[struct_id][field_name] = {resolved_field_type, offset};
+
+          uint32_t array_size = nodes[field_type_node].extra_data;
+          TypeId stored_field_type;
+          if (array_size > 0) {
+              // Поле-массив (например "целое[3] поле;"): само по себе не рекурсивно,
+              // так как массив хранится как указатель (см. §2 SEMANTICS.md), а не
+              // как встроенное по значению поле, поэтому массив структуры на саму
+              // себя (дерево/список) допустим.
+              stored_field_type = wrap_array_if_needed(field_type, array_size, nodes[field_type_node].token);
+          } else {
+              stored_field_type = resolve_alias(field_type);
+              if (stored_field_type == struct_id) error(nodes[field_type_node].token, "Рекурсивное объявление структуры");
+          }
+
+          struct_fields[struct_id][field_name] = {stored_field_type, offset};
           offset += 1;
       }
       struct_sizes[struct_id] = offset;
@@ -268,14 +278,14 @@ TypeId Analyzer::check(Parser::NodeId id) {
     if (node.children_count == 0) error(node.token, "Пустые массивы не поддерживаются");
     TypeId base_type = check(child_indices[node.children_offset]);
     if (!is_allowed_array_base_type(base_type)) {
-        error(node.token, "Элементами массива могут быть только примитивные типы или строки");
+        error(node.token, "Элементами массива могут быть только примитивные типы, строки или структуры");
     }
     for (uint32_t i = 1; i < node.children_count; ++i) {
         if (!types_compatible(check(child_indices[node.children_offset + i]), base_type)) {
             error(node.token, "Элементы массива должны быть одного типа");
         }
     }
-    result = type_table.register_type({TypeKind::Array, 0, node.children_count, base_type});
+    result = canonical_array_type(base_type, node.children_count);
     break;
   }
   case Parser::NodeType::StructLiteral: {
@@ -349,10 +359,14 @@ TypeId Analyzer::check(Parser::NodeId id) {
     FuncSignature sig;
 
     // Выявление типов возвращаемого и параметрических типов
-    sig.return_type = parse_type_token(nodes[child_indices[node.children_offset]].token);
+    Parser::NodeId ret_type_node = child_indices[node.children_offset];
+    TypeId ret_base_type = parse_type_token(nodes[ret_type_node].token);
+    sig.return_type = wrap_array_if_needed(ret_base_type, nodes[ret_type_node].extra_data, nodes[ret_type_node].token);
     for (uint32_t i = 2; i < node.children_count; i += 2) {
-        TypeId param_type = parse_type_token(nodes[child_indices[node.children_offset + i]].token);
-        if (param_type == type_table.get_builtin(TypeKind::Void)) error(nodes[child_indices[node.children_offset + i]].token, "Параметр функции не может иметь тип 'пусто'");
+        Parser::NodeId param_type_node = child_indices[node.children_offset + i];
+        TypeId param_base_type = parse_type_token(nodes[param_type_node].token);
+        if (param_base_type == type_table.get_builtin(TypeKind::Void)) error(nodes[param_type_node].token, "Параметр функции не может иметь тип 'пусто'");
+        TypeId param_type = wrap_array_if_needed(param_base_type, nodes[param_type_node].extra_data, nodes[param_type_node].token);
         sig.param_types.push_back(param_type);
     }
     
@@ -407,6 +421,16 @@ TypeId Analyzer::check(Parser::NodeId id) {
     // Проверка на встроенные функции
     std::string fname_str = std::string(pool.get(func_name));
     if (fname_str == "печать" || fname_str == "ввод" || fname_str == "выход" || fname_str == "паника" || fname_str == "утверждение") {
+      // У каждой встроенной функции ровно одна допустимая арность: "ввод" не использует
+      // аргументы вовсе, остальные обращаются к args[0] безусловно (см. §7 SEMANTICS.md),
+      // поэтому 0 или >1 аргументов запрещены статически, а не тихо игнорируются.
+      uint32_t expected_args = (fname_str == "ввод") ? 0 : 1;
+      uint32_t actual_args = node.children_count - 1;
+      if (actual_args != expected_args) {
+        error(node.token, "Встроенная функция '" + fname_str + "' требует ровно " +
+                               std::to_string(expected_args) + " аргумент(ов), передано " +
+                               std::to_string(actual_args));
+      }
       for (uint32_t i = 1; i < node.children_count; ++i) {
         check(child_indices[node.children_offset + i]);
       }
@@ -520,6 +544,46 @@ bool Analyzer::all_paths_return(Parser::NodeId id) {
     }
     return false;
   }
+  case Parser::NodeType::While: {
+    // "пока(истина) { ... }" может завершиться только через return (тогда путь
+    // гарантирует значение) либо через break (тогда управление уходит после цикла,
+    // и гарантии нет). Если условие не буквально "истина", цикл может завершиться
+    // штатно по условию, что тоже не даёт гарантии.
+    Parser::NodeId cond_id = child_indices[node.children_offset];
+    const auto &cond_node = nodes[cond_id];
+    bool always_true = cond_node.type == Parser::NodeType::LiteralBool &&
+                        cond_node.token.type == Lexer::TokenType::KwTrue;
+    if (!always_true) return false;
+    Parser::NodeId body_id = child_indices[node.children_offset + 1];
+    return !contains_own_break(body_id);
+  }
+  default:
+    return false;
+  }
+}
+
+// Ищет "прервать", относящийся именно к этому циклу (т.е. не поглощённый вложенным
+// пока/циклом, у которого свой break). Используется только для while(true) в
+// all_paths_return: если такого break нет, цикл покинуть можно только через return.
+bool Analyzer::contains_own_break(Parser::NodeId id) {
+  if (id == Parser::InvalidNode) return false;
+  const auto &node = nodes[id];
+  switch (node.type) {
+  case Parser::NodeType::Break:
+    return true;
+  case Parser::NodeType::Block: {
+    for (uint32_t i = 0; i < node.children_count; ++i) {
+      if (contains_own_break(child_indices[node.children_offset + i])) return true;
+    }
+    return false;
+  }
+  case Parser::NodeType::If: {
+    if (contains_own_break(child_indices[node.children_offset + 1])) return true;
+    if (node.children_count > 2 && contains_own_break(child_indices[node.children_offset + 2])) return true;
+    return false;
+  }
+  case Parser::NodeType::While:
+    return false; // Вложенный цикл поглощает свои break — сюда они не относятся.
   default:
     return false;
   }
@@ -606,7 +670,44 @@ TypeId Analyzer::check_unary(Parser::NodeId id) {
 
 
 
-void Analyzer::analyze(Parser::NodeId root) { check(root); }
+void Analyzer::analyze(Parser::NodeId root) {
+  check(root);
+
+  // Точка входа "Начало" обязательна: без неё VM::run() не сможет запуститься.
+  // Проверяем это здесь же, статически, а не оставляем на обнаружение в рантайме.
+  Lexer::IdentId main_id = pool.intern("Начало");
+  auto it = functions.find(main_id);
+  if (it == functions.end() || !it->second.is_defined) {
+    error(nodes[root].token, "Точка входа 'Начало' не найдена");
+  }
+}
+
+// Возвращает существующий TypeId для массива "base_type[size]", если такой уже был
+// зарегистрирован, иначе регистрирует новый и запоминает его. Без этой канонизации
+// каждое упоминание одного и того же по структуре типа массива получало бы свой
+// TypeId, и прямое сравнение TypeId == TypeId (например, при присваивании массива
+// целиком или в бинарной операции) ошибочно считало бы структурно одинаковые массивы
+// разными типами (см. §4 SEMANTICS.md).
+TypeId Analyzer::canonical_array_type(TypeId base_type, uint32_t size) {
+  TypeId resolved_base = resolve_alias(base_type);
+  auto key = std::make_pair(resolved_base, size);
+  auto it = array_type_cache.find(key);
+  if (it != array_type_cache.end()) return it->second;
+  TypeId new_id = type_table.register_type({TypeKind::Array, 0, size, resolved_base});
+  array_type_cache[key] = new_id;
+  return new_id;
+}
+
+// Общая точка для любого места, где тип объявляется через "БазовыйТип[N]"
+// (переменная, поле структуры, параметр/возврат функции, синоним типа).
+// array_size == 0 означает "это не массив" — базовый тип возвращается как есть.
+TypeId Analyzer::wrap_array_if_needed(TypeId base_type, uint32_t array_size, Lexer::Token err_tok) {
+  if (array_size == 0) return base_type;
+  if (!is_allowed_array_base_type(base_type)) {
+    error(err_tok, "Базовым типом массива может быть только примитив, строка или структура");
+  }
+  return canonical_array_type(base_type, array_size);
+}
 
 TypeId Analyzer::parse_type_token(Lexer::Token tok) {
     if (tok.type == Lexer::TokenType::Identifier) {
