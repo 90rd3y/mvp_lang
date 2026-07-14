@@ -16,19 +16,39 @@ echo "=== Запуск тестов интерпретатора ==="
 # 1. Проверяем успешные тесты
 echo -e "\n[ Проверка корректного кода (должен вернуть 0) ]"
 for file in tests/pass/*.lang; do
-    $INTERPRETER "$file" > /dev/null 2>&1
+    # Сохраняем вывод во временный файл для точного сравнения
+    TEMP_OUT=".temp_stdout.out"
+    $INTERPRETER "$file" > "$TEMP_OUT" 2>/dev/null
     EXIT_CODE=$?
+    
+    OUT_FILE="${file%.lang}.out"
+    
     if [ $EXIT_CODE -eq 88 ]; then
         echo -e "${RED}[ASAN FAIL]${NC} $file (Утечка или ошибка памяти)"
         ((FAILED++))
     elif [ $EXIT_CODE -eq 0 ]; then
-        echo -e "${GREEN}[OK]${NC} $file"
-        ((PASSED++))
+        if [ -f "$OUT_FILE" ]; then
+            # Сравниваем вывод с помощью diff (игнорируем разницу в переводах строк \r)
+            DIFF_OUTPUT=$(diff -u --strip-trailing-cr "$OUT_FILE" "$TEMP_OUT" 2>&1)
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}[OK]${NC} $file"
+                ((PASSED++))
+            else
+                echo -e "${RED}[FAIL]${NC} $file (вывод не совпадает)"
+                # Выводим разницу, сдвигая её вправо для красоты
+                echo "$DIFF_OUTPUT" | sed 's/^/  /'
+                ((FAILED++))
+            fi
+        else
+            echo -e "${GREEN}[OK]${NC} $file (нет файла .out, проверен только код 0)"
+            ((PASSED++))
+        fi
     else
         echo -e "${RED}[FAIL]${NC} $file (Код возврата: $EXIT_CODE)"
         ((FAILED++))
     fi
 done
+rm -f .temp_stdout.out
 
 # 2. Проверяем тесты, которые должны упасть
 echo -e "\n[ Проверка обработки ошибок (должен вернуть != 0) ]"
