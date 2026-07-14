@@ -1,1 +1,0 @@
-# My MVP language project
